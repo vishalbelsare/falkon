@@ -1,0 +1,29 @@
+name: Linting
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  linting:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: pip install ruff==0.12.3 isort==6.0.1 black==25.1.0
+
+      - name: Run isort
+        run: isort falkon/ --line-length 120 --check --profile black
+
+      - name: Run ruff linter
+        run: ruff check falkon/
+
+      - name: Run black linter
+        run: black falkon/ --line-length 120 --check

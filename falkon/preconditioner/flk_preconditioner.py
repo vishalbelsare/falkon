@@ -1,14 +1,15 @@
-from typing import Union, Optional
+from typing import Optional, Union
 
 import torch
 
-from falkon.la_helpers import mul_triang, copy_triang, trsm, vec_mul_triang
+from falkon.la_helpers import copy_triang, mul_triang, trsm, vec_mul_triang
 from falkon.options import FalkonOptions
 from falkon.sparse.sparse_tensor import SparseTensor
 from falkon.utils import TicToc, decide_cuda
 from falkon.utils.helpers import check_same_device
-from falkon.utils.tensor_helpers import create_same_stride, is_f_contig, create_fortran
-from .pc_utils import *
+from falkon.utils.tensor_helpers import create_fortran, create_same_stride, is_f_contig
+
+from .pc_utils import check_init, inplace_add_diag_th, inplace_set_diag_th, lauum_wrapper, potrf_wrapper
 from .preconditioner import Preconditioner
 
 
@@ -65,6 +66,31 @@ class FalkonPreconditioner(Preconditioner):
         self.dT: Optional[torch.Tensor] = None
         self.dA: Optional[torch.Tensor] = None
 
+    def check_inputs(self, X: Union[torch.Tensor, SparseTensor], weight_vec: Optional[torch.Tensor] = None):
+        if X.is_cuda and not self._use_cuda:
+            raise RuntimeError("use_cuda is set to False, but data is CUDA tensor. Check your options.")
+        if weight_vec is not None and not check_same_device(X, weight_vec):
+            raise ValueError(f"Weights and data are not on the same device ({weight_vec.device}, {X.device})")
+        if weight_vec is not None and weight_vec.shape[0] != X.shape[0]:
+            raise ValueError(
+                f"Weights and Nystrom centers should have the same first dimension. "
+                f"Found instead {weight_vec.shape[0]}, {X.shape[0]}."
+            )
+
+    def init_kernel_mat(self, X) -> torch.Tensor:
+        dtype = X.dtype
+        dev = X.device
+        M = X.size(0)
+        with TicToc("Kernel", debug=self.params.debug):
+            if isinstance(X, torch.Tensor):
+                C = create_same_stride((M, M), X, dtype=dtype, device=dev, pin_memory=self._use_cuda)
+            else:  # If sparse tensor we need fortran for kernel calculation
+                C = create_fortran((M, M), dtype=dtype, device=dev, pin_memory=self._use_cuda)
+            self.kernel(X, X, out=C, opt=self.params)
+        if not is_f_contig(C):
+            C = C.T
+        return C
+
     def init(self, X: Union[torch.Tensor, SparseTensor], weight_vec: Optional[torch.Tensor] = None):
         """Initialize the preconditioner matrix.
 
@@ -78,35 +104,15 @@ class FalkonPreconditioner(Preconditioner):
             An optional vector of size (M x 1) which is used for reweighted least-squares.
             This vector should contain the weights corresponding to the Nystrom centers.
         """
-        if X.is_cuda and not self._use_cuda:
-            raise RuntimeError("use_cuda is set to False, but data is CUDA tensor. "
-                               "Check your options.")
-        if weight_vec is not None and not check_same_device(X, weight_vec):
-            raise ValueError(f"Weights and data are not on the same device "
-                             f"({weight_vec.device}, {X.device})")
-        if weight_vec is not None and weight_vec.shape[0] != X.shape[0]:
-            raise ValueError(f"Weights and Nystrom centers should have the same first dimension. "
-                             f"Found instead {weight_vec.shape[0]}, {X.shape[0]}.")
-        dtype = X.dtype
-        dev = X.device
-        eps = self.params.pc_epsilon(X.dtype)
-        M = X.size(0)
-
-        with TicToc("Kernel", debug=self.params.debug):
-            if isinstance(X, torch.Tensor):
-                C = create_same_stride((M, M), X, dtype=dtype, device=dev,
-                                       pin_memory=self._use_cuda)
-            else:  # If sparse tensor we need fortran for kernel calculation
-                C = create_fortran((M, M), dtype=dtype, device=dev, pin_memory=self._use_cuda)
-            self.kernel(X, X, out=C, opt=self.params)
-        if not is_f_contig(C):
-            C = C.T
+        self.check_inputs(X, weight_vec)
+        C = self.init_kernel_mat(X)
+        M = C.shape[0]
+        eps = self.params.pc_epsilon(C.dtype)
 
         with TicToc("Cholesky 1", debug=self.params.debug):
             # Compute T: lower(fC) = T.T
             inplace_add_diag_th(C, eps * M)
-            C = potrf_wrapper(C, clean=False, upper=False,
-                              use_cuda=self._use_cuda, opt=self.params)
+            C = potrf_wrapper(C, clean=False, upper=False, use_cuda=self._use_cuda, opt=self.params)
             # Save the diagonal which will be overwritten when computing A
             self.dT = C.diag()
 
@@ -143,8 +149,7 @@ class FalkonPreconditioner(Preconditioner):
             # lower(fC) = 1/M * T@T.T + lambda * I
             inplace_add_diag_th(C, self._lambda)
             # Cholesky on lower(fC) : lower(fC) = A.T
-            C = potrf_wrapper(C, clean=False, upper=False,
-                              use_cuda=self._use_cuda, opt=self.params)
+            C = potrf_wrapper(C, clean=False, upper=False, use_cuda=self._use_cuda, opt=self.params)
             self.dA = C.diag()
 
         self.fC = C

@@ -4,26 +4,27 @@ import numpy as np
 import pytest
 import torch
 
-from falkon.utils.tensor_helpers import move_tensor, create_same_stride
-from falkon.utils import decide_cuda
 from falkon.center_selection import UniformSelector
-from falkon.kernels import GaussianKernel
+from falkon.kernels import GaussianKernel, PrecomputedKernel
 from falkon.optim.conjgrad import ConjugateGradient, FalkonConjugateGradient
 from falkon.options import FalkonOptions
 from falkon.preconditioner import FalkonPreconditioner
 from falkon.tests.gen_random import gen_random, gen_random_pd
+from falkon.utils import decide_cuda
+from falkon.utils.tensor_helpers import create_same_stride, move_tensor
 
 
 @pytest.mark.full
 @pytest.mark.parametrize("order", ["F", "C"])
-@pytest.mark.parametrize("device", [
-    "cpu", pytest.param("cuda:0", marks=pytest.mark.skipif(not decide_cuda(), reason="No GPU found."))])
-class TestConjugateGradient():
+@pytest.mark.parametrize(
+    "device", ["cpu", pytest.param("cuda:0", marks=pytest.mark.skipif(not decide_cuda(), reason="No GPU found."))]
+)
+class TestConjugateGradient:
     t = 200
 
     @pytest.fixture()
     def mat(self):
-        return torch.from_numpy(gen_random_pd(self.t, 'float64', F=False, seed=9))
+        return gen_random_pd(self.t, "float64", F=False, seed=9)
 
     @pytest.fixture()
     def conjgrad(self):
@@ -31,7 +32,7 @@ class TestConjugateGradient():
 
     @pytest.fixture(params=[1, 10], ids=["1-rhs", "10-rhs"])
     def vec_rhs(self, request):
-        return torch.from_numpy(gen_random(self.t, request.param, 'float64', F=False, seed=9))
+        return torch.from_numpy(gen_random(self.t, request.param, "float64", F=False, seed=9))
 
     def test_one_rhs(self, mat, vec_rhs, conjgrad, order, device):
         if order == "F":
@@ -57,8 +58,7 @@ class TestConjugateGradient():
         init_sol = create_same_stride(vec_rhs.size(), vec_rhs, vec_rhs.dtype, device)
         init_sol.fill_(0.0)
 
-        x = conjgrad.solve(X0=init_sol, B=vec_rhs, mmv=lambda x_: mat @ x_, max_iter=10,
-                           callback=None)
+        x = conjgrad.solve(X0=init_sol, B=vec_rhs, mmv=lambda x_: mat @ x_, max_iter=10, callback=None)
 
         assert x.data_ptr() == init_sol.data_ptr(), "Initial solution vector was copied"
         assert str(x.device) == device, "Device has changed unexpectedly"
@@ -68,8 +68,9 @@ class TestConjugateGradient():
         np.testing.assert_allclose(expected, x.cpu().numpy(), rtol=1e-6)
 
 
-@pytest.mark.parametrize("device", [
-    "cpu", pytest.param("cuda:0", marks=pytest.mark.skipif(not decide_cuda(), reason="No GPU found."))])
+@pytest.mark.parametrize(
+    "device", ["cpu", pytest.param("cuda:0", marks=pytest.mark.skipif(not decide_cuda(), reason="No GPU found."))]
+)
 class TestFalkonConjugateGradient:
     basic_opt = FalkonOptions(use_cpu=True, keops_active="no")
     N = 500
@@ -83,11 +84,11 @@ class TestFalkonConjugateGradient:
 
     @pytest.fixture()
     def data(self):
-        return torch.from_numpy(gen_random(self.N, self.D, 'float64', F=False, seed=10))
+        return torch.from_numpy(gen_random(self.N, self.D, "float64", F=False, seed=10))
 
     @pytest.fixture(params=[1, 10], ids=["1-rhs", "10-rhs"])
     def vec_rhs(self, request):
-        return torch.from_numpy(gen_random(self.N, request.param, 'float64', F=False, seed=9))
+        return torch.from_numpy(gen_random(self.N, request.param, "float64", F=False, seed=9))
 
     @pytest.fixture()
     def centers(self, data):
@@ -122,16 +123,28 @@ class TestFalkonConjugateGradient:
         centers = move_tensor(centers, device)
         vec_rhs = move_tensor(vec_rhs, device)
 
-        beta = opt.solve(X=data, M=centers, Y=vec_rhs, _lambda=self.penalty,
-                         initial_solution=None, max_iter=100)
-        alpha = preconditioner.apply(beta)
+        with torch.inference_mode():
+            beta = opt.solve(X=data, M=centers, Y=vec_rhs, _lambda=self.penalty, initial_solution=None, max_iter=100)
+            alpha = preconditioner.apply(beta)
 
         assert str(beta.device) == device, "Device has changed unexpectedly"
         np.testing.assert_allclose(expected, alpha.cpu().numpy(), rtol=1e-5)
 
-    def test_precomputed_kernel(self, data, centers, kernel, preconditioner, knm, kmm, vec_rhs, device):
+    def test_no_inference_mode(self, data, centers, kernel, preconditioner, knm, kmm, vec_rhs, device):
         preconditioner = preconditioner.to(device)
         options = dataclasses.replace(self.basic_opt, use_cpu=device == "cpu")
+        opt = FalkonConjugateGradient(kernel, preconditioner, opt=options)
+
+        data = move_tensor(data, device)
+        centers = move_tensor(centers, device)
+        vec_rhs = move_tensor(vec_rhs, device)
+
+        with pytest.raises(RuntimeError, match="InferenceMode"):
+            opt.solve(X=data, M=centers, Y=vec_rhs, _lambda=self.penalty, initial_solution=None, max_iter=100)
+
+    def test_restarts(self, data, centers, kernel, preconditioner, knm, kmm, vec_rhs, device):
+        preconditioner = preconditioner.to(device)
+        options = dataclasses.replace(self.basic_opt, use_cpu=device == "cpu", cg_tolerance=1e-10)
         opt = FalkonConjugateGradient(kernel, preconditioner, opt=options)
 
         # Solve (knm.T @ knm + lambda*n*kmm) x = knm.T @ b
@@ -139,11 +152,35 @@ class TestFalkonConjugateGradient:
         lhs = knm.T @ knm + self.penalty * self.N * kmm
         expected = np.linalg.solve(lhs.numpy(), rhs.numpy())
 
-        knm = move_tensor(knm, device)
+        data = move_tensor(data, device)
+        centers = move_tensor(centers, device)
         vec_rhs = move_tensor(vec_rhs, device)
 
-        beta = opt.solve(X=knm, M=None, Y=vec_rhs, _lambda=self.penalty,
-                         initial_solution=None, max_iter=200)
+        with torch.inference_mode():
+            sol = None
+            for _ in range(30):
+                sol = opt.solve(X=data, M=centers, Y=vec_rhs, _lambda=self.penalty, initial_solution=sol, max_iter=6)
+                print()
+
+            alpha = preconditioner.apply(sol)
+        np.testing.assert_allclose(expected, alpha.cpu().numpy(), rtol=1e-5)
+
+    def test_precomputed_kernel(self, data, centers, kernel, preconditioner, knm, kmm, vec_rhs, device):
+        preconditioner = preconditioner.to(device)
+        options = dataclasses.replace(self.basic_opt, use_cpu=device == "cpu")
+        knm_dev = move_tensor(knm, device)
+        calc_kernel = PrecomputedKernel(knm_dev, options)
+        opt = FalkonConjugateGradient(calc_kernel, preconditioner, opt=options)
+
+        # Solve (knm.T @ knm + lambda*n*kmm) x = knm.T @ b
+        rhs = knm.T @ vec_rhs
+        lhs = knm.T @ knm + self.penalty * self.N * kmm
+        expected = np.linalg.solve(lhs.numpy(), rhs.numpy())
+
+        vec_rhs = move_tensor(vec_rhs, device)
+
+        # We still need to pass X and M in for shape checks to pass in MMV
+        beta = opt.solve(X=None, M=None, Y=vec_rhs, _lambda=self.penalty, initial_solution=None, max_iter=200)
         alpha = preconditioner.apply(beta)
 
         assert str(beta.device) == device, "Device has changed unexpectedly"

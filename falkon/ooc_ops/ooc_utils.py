@@ -2,16 +2,13 @@ import math
 from typing import List
 
 
-def calc_block_sizes(max_block_size: int,
-                     num_devices: int,
-                     num_rows: int,
-                     min_blocks_per_device: int) -> List[int]:
+def calc_block_sizes(max_block_size: int, num_devices: int, num_rows: int, min_blocks_per_device: int) -> List[int]:
     min_num_blocks = int(math.ceil(num_rows / max_block_size))
     num_blocks = max(min_num_blocks, num_devices, min_blocks_per_device)
     if num_blocks % num_devices != 0:  # even number of blocks per GPU
         num_blocks += num_devices - (num_blocks % num_devices)
     if num_blocks <= 0:
-        raise RuntimeError("num_blocks expected > 0, found %d" % (num_blocks))
+        raise RuntimeError(f"num_blocks expected > 0, found {num_blocks}")
     # Calculate a block size which evenly splits N
     block_size, extras = divmod(num_rows, num_blocks)
     block_sizes = extras * [block_size + 1] + (num_blocks - extras) * [block_size]

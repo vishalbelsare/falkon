@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 import torch
 
@@ -10,20 +10,18 @@ from falkon.hopt.utils import get_scalar
 
 class HoldOut(HyperoptObjective):
     def __init__(
-            self,
-            kernel: falkon.kernels.DiffKernel,
-            centers_init: torch.Tensor,
-            penalty_init: torch.Tensor,
-            opt_centers: bool,
-            opt_penalty: bool,
-            val_pct: float,
-            per_iter_split: bool,
-            centers_transform: Optional[torch.distributions.Transform] = None,
-            pen_transform: Optional[torch.distributions.Transform] = None,
+        self,
+        kernel: falkon.kernels.DiffKernel,
+        centers_init: torch.Tensor,
+        penalty_init: torch.Tensor,
+        opt_centers: bool,
+        opt_penalty: bool,
+        val_pct: float,
+        per_iter_split: bool,
+        centers_transform: Optional[torch.distributions.Transform] = None,
+        pen_transform: Optional[torch.distributions.Transform] = None,
     ):
-        super(HoldOut, self).__init__(kernel, centers_init, penalty_init,
-                                      opt_centers, opt_penalty,
-                                      centers_transform, pen_transform)
+        super().__init__(kernel, centers_init, penalty_init, opt_centers, opt_penalty, centers_transform, pen_transform)
         self.x_train, self.y_train = None, None
         self.losses: Optional[Dict[str, torch.Tensor]] = None
         self.per_iter_split = per_iter_split
@@ -72,16 +70,16 @@ class HoldOut(HyperoptObjective):
         kmm = self.kernel(self.centers, self.centers)
         L = jittering_cholesky(kmm)  # L @ L.T = kmm
         # A = L^{-1} K_mn / (sqrt(n*pen))
-        A = torch.triangular_solve(kmn, L, upper=False).solution / sqrt_var
+        A = torch.linalg.solve_triangular(L, kmn, upper=False) / sqrt_var
         AAT = A @ A.T
         # B = A @ A.T + I
         B = AAT + torch.eye(AAT.shape[0], device=X.device, dtype=X.dtype)
         LB = jittering_cholesky(B)  # LB @ LB.T = B
         AYtr = A @ Y
-        c = torch.triangular_solve(AYtr, LB, upper=False).solution / sqrt_var
+        c = torch.linalg.solve_triangular(LB, AYtr, upper=False) / sqrt_var
 
-        tmp1 = torch.triangular_solve(c, LB, upper=False, transpose=True).solution
-        alpha = torch.triangular_solve(tmp1, L, upper=False, transpose=True).solution
+        tmp1 = torch.linalg.solve_triangular(LB.T, c, upper=True)
+        alpha = torch.linalg.solve_triangular(L.T, tmp1, upper=True)
         return alpha
 
     def _save_losses(self, holdout):
@@ -90,9 +88,11 @@ class HoldOut(HyperoptObjective):
         }
 
     def __repr__(self):
-        return f"NystromHoldOut(" \
-               f"kernel={self.kernel}, " \
-               f"penalty={get_scalar(self.penalty)}, " \
-               f"num_centers={self.centers.shape[0]}, " \
-               f"val_pct={self.val_pct}, " \
-               f"per_iter_split={self.per_iter_split})"
+        return (
+            f"NystromHoldOut("
+            f"kernel={self.kernel}, "
+            f"penalty={get_scalar(self.penalty)}, "
+            f"num_centers={self.centers.shape[0]}, "
+            f"val_pct={self.val_pct}, "
+            f"per_iter_split={self.per_iter_split})"
+        )

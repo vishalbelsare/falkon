@@ -13,8 +13,7 @@ __all__ = (
 )
 
 _docs = {
-    "base":
-    """
+    "base": """
 debug
     `default False` - When set to ``True``, the estimators will print extensive debugging information.
     Set it if you want to dig deeper.
@@ -90,9 +89,12 @@ num_fmm_streams
     `default 2` - The number of CUDA streams to use for evaluating kernels when CUDA is available.
     This number should be increased from its default value when the number of Nystroem centers is
     higher than around 5000.
+memory_slack
+    `default 0.9` - Controls the amount of slack in GPU memory when calculating the size of matrix
+    splits for kernel-vector multiplications. This can be reduced if out-of-memory errors occur
+    on the GPU.
     """,
-    "keops":
-    """
+    "keops": """
 keops_acc_dtype
     `default "auto"` - A string describing the accumulator data-type for KeOps.
     For more information refer to the
@@ -110,8 +112,7 @@ keops_memory_slack
     Since memory usage estimation for KeOps is hard, you may need to reduce this value if running
     out-of-GPU-memory when using KeOps. Typically this only occurs for large datasets.
     """,
-    "cg":
-    """
+    "cg": """
 cg_epsilon_32
     `default 1e-7` - Small added epsilon to prevent divide-by-zero errors in the conjugate
     gradient algorithm. Used for single precision data-types
@@ -129,12 +130,11 @@ cg_differential_convergence
     `default False` - Differential convergence refers to a procedure relevant to the conjugate
     gradient optimizer, and only applies when multiple right-hand side vectors are used (e.g.
     in multi-class classification, or in hyperparameter optimization with the stochastic objective).
-    If this flag is set, whenever the convergence criterion is met for single right-hand-sides, 
+    If this flag is set, whenever the convergence criterion is met for single right-hand-sides,
     they are removed from the optimization procedure. If it is not set, all vectors must have
     converged for the optimization to stop. It is especially useful for hyperparameter optimization.
     """,
-    "pc":
-    """
+    "pc": """
 pc_epsilon_32
     `default 1e-5` - Epsilon used to increase the diagonal dominance of a matrix before its
     Cholesky decomposition (for single-precision data types).
@@ -145,8 +145,7 @@ cpu_preconditioner
     `default False` - Whether the preconditioner should be computed on the CPU. This setting
     overrides the :attr:`FalkonOptions.use_cpu` option.
     """,
-    "chol":
-    """
+    "chol": """
 chol_force_in_core
     `default False` - Whether to force in-core execution of the Cholesky decomposition. This will
     not work with matrices bigger than GPU memory.
@@ -156,17 +155,16 @@ chol_force_ooc
 chol_par_blk_multiplier
     `default 2` - Minimum number of tiles per-GPU in the out-of-core, GPU-parallel POTRF algorithm.
     """,
-    "extra":
-    """
+    "extra": """
     .. _KeOps documentation: https://www.kernel-operations.io/keops/python/api/pytorch/Genred_torch.html?highlight=genred#pykeops.torch.Genred
     """,
 }
 
 
 @dataclass
-class BaseOptions():
-    """A set of options which are common to different modules
-    """
+class BaseOptions:
+    """A set of options which are common to different modules"""
+
     debug: bool = False
     use_cpu: bool = False
     max_gpu_mem: float = np.inf
@@ -180,43 +178,48 @@ class BaseOptions():
     never_store_kernel: bool = False
     store_kernel_d_threshold: int = 1200
     num_fmm_streams: int = 2
+    memory_slack: float = 0.9
 
     def get_base_options(self):
-        return BaseOptions(debug=self.debug,
-                           use_cpu=self.use_cpu,
-                           max_gpu_mem=self.max_gpu_mem,
-                           max_cpu_mem=self.max_cpu_mem,
-                           no_single_kernel=self.no_single_kernel,
-                           compute_arch_speed=self.compute_arch_speed,
-                           min_cuda_pc_size_32=self.min_cuda_pc_size_32,
-                           min_cuda_pc_size_64=self.min_cuda_pc_size_64,
-                           min_cuda_iter_size_32=self.min_cuda_iter_size_32,
-                           min_cuda_iter_size_64=self.min_cuda_iter_size_64,
-                           never_store_kernel=self.never_store_kernel,
-                           store_kernel_d_threshold=self.store_kernel_d_threshold)
+        return BaseOptions(
+            debug=self.debug,
+            use_cpu=self.use_cpu,
+            max_gpu_mem=self.max_gpu_mem,
+            max_cpu_mem=self.max_cpu_mem,
+            no_single_kernel=self.no_single_kernel,
+            compute_arch_speed=self.compute_arch_speed,
+            min_cuda_pc_size_32=self.min_cuda_pc_size_32,
+            min_cuda_pc_size_64=self.min_cuda_pc_size_64,
+            min_cuda_iter_size_32=self.min_cuda_iter_size_32,
+            min_cuda_iter_size_64=self.min_cuda_iter_size_64,
+            never_store_kernel=self.never_store_kernel,
+            store_kernel_d_threshold=self.store_kernel_d_threshold,
+            memory_slack=self.memory_slack,
+        )
 
 
 @dataclass
-class KeopsOptions():
-    """A set of options which relate to usage of KeOps
-    """
+class KeopsOptions:
+    """A set of options which relate to usage of KeOps"""
+
     keops_acc_dtype: str = "auto"
     keops_sum_scheme: str = "auto"
     keops_active: str = "auto"
     keops_memory_slack: float = 0.7
 
     def get_keops_options(self):
-        return KeopsOptions(keops_acc_dtype=self.keops_acc_dtype,
-                            keops_sum_scheme=self.keops_sum_scheme,
-                            keops_active=self.keops_active,
-                            keops_memory_slack=self.keops_memory_slack,
-                            )
+        return KeopsOptions(
+            keops_acc_dtype=self.keops_acc_dtype,
+            keops_sum_scheme=self.keops_sum_scheme,
+            keops_active=self.keops_active,
+            keops_memory_slack=self.keops_memory_slack,
+        )
 
 
 @dataclass
-class ConjugateGradientOptions():
-    """A set of options related to conjugate gradient optimization
-    """
+class ConjugateGradientOptions:
+    """A set of options related to conjugate gradient optimization"""
+
     cg_epsilon_32: float = 1e-7
     cg_epsilon_64: float = 1e-15
     cg_tolerance: float = 1e-7
@@ -229,18 +232,20 @@ class ConjugateGradientOptions():
         elif dtype == torch.float64:
             return self.cg_epsilon_64
         else:
-            raise TypeError("Data-type %s invalid" % (dtype))
+            raise TypeError(f"Data-type {str(dtype)} invalid")
 
     def get_conjgrad_options(self):
-        return ConjugateGradientOptions(cg_epsilon_32=self.cg_epsilon_32,
-                                        cg_epsilon_64=self.cg_epsilon_64,
-                                        cg_tolerance=self.cg_tolerance,
-                                        cg_full_gradient_every=self.cg_full_gradient_every,
-                                        cg_differential_convergence=self.cg_differential_convergence)
+        return ConjugateGradientOptions(
+            cg_epsilon_32=self.cg_epsilon_32,
+            cg_epsilon_64=self.cg_epsilon_64,
+            cg_tolerance=self.cg_tolerance,
+            cg_full_gradient_every=self.cg_full_gradient_every,
+            cg_differential_convergence=self.cg_differential_convergence,
+        )
 
 
 @dataclass
-class PreconditionerOptions():
+class PreconditionerOptions:
     """Options related to calculation of the preconditioner
 
     See Also
@@ -248,6 +253,7 @@ class PreconditionerOptions():
     :class:`falkon.preconditioner.FalkonPreconditioner` :
         Preconditioner class which uses these options
     """
+
     pc_epsilon_32: float = 1e-5
     pc_epsilon_64: float = 1e-13
     cpu_preconditioner: bool = False
@@ -258,43 +264,48 @@ class PreconditionerOptions():
         elif dtype == torch.float64:
             return self.pc_epsilon_64
         else:
-            raise TypeError("Data-type %s invalid" % (dtype))
+            raise TypeError(f"Data-type {str(dtype)} invalid")
 
     def get_pc_options(self):
-        return PreconditionerOptions(pc_epsilon_32=self.pc_epsilon_32,
-                                     pc_epsilon_64=self.pc_epsilon_64,
-                                     cpu_preconditioner=self.cpu_preconditioner)
+        return PreconditionerOptions(
+            pc_epsilon_32=self.pc_epsilon_32,
+            pc_epsilon_64=self.pc_epsilon_64,
+            cpu_preconditioner=self.cpu_preconditioner,
+        )
 
 
 @dataclass(frozen=False)
-class CholeskyOptions():
-    """Options related to the out-of-core POTRF (Cholesky decomposition) operation
+class CholeskyOptions:
+    """Options related to the out-of-core POTRF (Cholesky decomposition) operation"""
 
-    """
     chol_force_in_core: bool = False
     chol_force_ooc: bool = False
     chol_par_blk_multiplier: int = 2
 
     def get_chol_options(self):
-        return CholeskyOptions(chol_force_in_core=self.chol_force_in_core,
-                               chol_force_ooc=self.chol_force_ooc,
-                               chol_par_blk_multiplier=self.chol_par_blk_multiplier)
+        return CholeskyOptions(
+            chol_force_in_core=self.chol_force_in_core,
+            chol_force_ooc=self.chol_force_ooc,
+            chol_par_blk_multiplier=self.chol_par_blk_multiplier,
+        )
 
 
 @dataclass()
 class FalkonOptions(
-        BaseOptions,
-        ConjugateGradientOptions,
-        PreconditionerOptions,
-        CholeskyOptions,
-        KeopsOptions,):
+    BaseOptions,
+    ConjugateGradientOptions,
+    PreconditionerOptions,
+    CholeskyOptions,
+    KeopsOptions,
+):
     """Global options for Falkon."""
+
     pass
 
 
 # Fix documentation: FalkonOptions must inherit all params from its super-classes.
 def _reset_doc(cls, params):
-    cls.__doc__ = "%s\n\nParameters\n----------%s\n" % (cls.__doc__, params)
+    cls.__doc__ = f"{cls.__doc__}\n\nParameters\n----------{params}\n"
 
 
 _reset_doc(BaseOptions, _docs["base"])
@@ -304,6 +315,8 @@ _reset_doc(PreconditionerOptions, _docs["pc"])
 _reset_doc(CholeskyOptions, _docs["chol"])
 
 
-FalkonOptions.__doc__ = "%s\n\nParameters\n----------%s%s%s%s%s\n\n%s" % (
-    FalkonOptions.__doc__, _docs["base"], _docs["keops"], _docs["cg"], _docs["pc"],
-    _docs["chol"], _docs["extra"])
+FalkonOptions.__doc__ = (
+    f"{FalkonOptions.__doc__}\n\nParameters\n----------"
+    f"{_docs['base']}{_docs['keops']}{_docs['cg']}{_docs['pc']}{_docs['chol']}"
+    f"\n\n{_docs['extra']}"
+)

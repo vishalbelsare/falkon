@@ -1,69 +1,68 @@
 import warnings
-from typing import Union, Tuple, Any, Generator
+from typing import Any, Generator, Tuple, Union
 
 import numpy as np
 import torch
 
 __all__ = (
-    "create_same_stride", "copy_same_stride", "extract_same_stride",
-    "extract_fortran", "extract_C",
-    "create_fortran", "create_C", "is_f_contig", "is_contig", "is_contig_vec",
-    "cast_tensor", "move_tensor", "batchify_tensors",
+    "create_same_stride",
+    "copy_same_stride",
+    "extract_same_stride",
+    "extract_fortran",
+    "extract_C",
+    "create_fortran",
+    "create_C",
+    "is_f_contig",
+    "is_contig",
+    "is_contig_vec",
+    "cast_tensor",
+    "move_tensor",
+    "batchify_tensors",
 )
 
 
 def _fcontig_strides(sizes) -> Tuple[int, ...]:
     if len(sizes) == 0:
-        return tuple()
+        return ()
     return tuple([1] + np.cumprod(sizes)[:-1].tolist())
 
 
 def _ccontig_strides(sizes) -> Tuple[int, ...]:
     if len(sizes) == 0:
-        return tuple()
+        return ()
     return tuple(np.cumprod(sizes[1:][::-1])[::-1].tolist() + [1])
 
 
 def _new_strided_tensor(
-        size: Tuple[int],
-        stride: Tuple[int],
-        dtype: torch.dtype,
-        device: Union[str, torch.device],
-        pin_memory: bool) -> torch.Tensor:
+    size: Tuple[int], stride: Tuple[int], dtype: torch.dtype, device: Union[str, torch.device], pin_memory: bool
+) -> torch.Tensor:
     if not torch.cuda.is_available():
         pin_memory = False
     else:
         if isinstance(device, torch.device):
-            pin_memory &= device.type == 'cpu'
+            pin_memory &= device.type == "cpu"
         else:
-            pin_memory &= device.lower() == 'cpu'
+            pin_memory &= device.lower() == "cpu"
 
     # noinspection PyArgumentList
     return torch.empty_strided(
-        size=size, stride=stride,
-        dtype=dtype, device=device,
-        requires_grad=False,
-        pin_memory=pin_memory)
+        size=size, stride=stride, dtype=dtype, device=device, requires_grad=False, pin_memory=pin_memory
+    )
 
 
-def extract_fortran(from_tns: torch.Tensor,
-                    size: Tuple[int, ...],
-                    offset: int) -> torch.Tensor:
+def extract_fortran(from_tns: torch.Tensor, size: Tuple[int, ...], offset: int) -> torch.Tensor:
     strides = _fcontig_strides(size)
     return from_tns.as_strided(size=size, stride=strides, storage_offset=int(offset))
 
 
-def extract_C(from_tns: torch.Tensor,
-              size: Tuple[int, ...],
-              offset: int) -> torch.Tensor:
+def extract_C(from_tns: torch.Tensor, size: Tuple[int, ...], offset: int) -> torch.Tensor:
     strides = _ccontig_strides(size)
     return from_tns.as_strided(size=size, stride=strides, storage_offset=int(offset))
 
 
-def extract_same_stride(from_tns: torch.Tensor,
-                        size: Tuple[int, ...],
-                        other: torch.Tensor,
-                        offset: int = 0) -> torch.Tensor:
+def extract_same_stride(
+    from_tns: torch.Tensor, size: Tuple[int, ...], other: torch.Tensor, offset: int = 0
+) -> torch.Tensor:
     if is_f_contig(other, strict=True):
         return extract_fortran(from_tns, size, offset)
     elif is_contig(other):
@@ -72,10 +71,9 @@ def extract_same_stride(from_tns: torch.Tensor,
         raise ValueError("Desired stride is not contiguous, cannot extract.")
 
 
-def create_fortran(size: Tuple[int, ...],
-                   dtype: torch.dtype,
-                   device: Union[str, torch.device],
-                   pin_memory: bool = False) -> torch.Tensor:
+def create_fortran(
+    size: Tuple[int, ...], dtype: torch.dtype, device: Union[str, torch.device], pin_memory: bool = False
+) -> torch.Tensor:
     """Allocates an empty, column-contiguous 1 or 2-dimensional tensor
 
     Parameters
@@ -100,10 +98,9 @@ def create_fortran(size: Tuple[int, ...],
     return _new_strided_tensor(size, strides, dtype, device, pin_memory)
 
 
-def create_C(size: Tuple[int, ...],
-             dtype: torch.dtype,
-             device: Union[str, torch.device],
-             pin_memory: bool = False) -> torch.Tensor:
+def create_C(
+    size: Tuple[int, ...], dtype: torch.dtype, device: Union[str, torch.device], pin_memory: bool = False
+) -> torch.Tensor:
     """Allocates an empty, row-contiguous 1 or 2-dimensional tensor
 
     Parameters
@@ -128,11 +125,13 @@ def create_C(size: Tuple[int, ...],
     return _new_strided_tensor(size, strides, dtype, device, pin_memory)
 
 
-def create_same_stride(size: Tuple[int, ...],
-                       other: torch.Tensor,
-                       dtype: torch.dtype,
-                       device: Union[str, torch.device],
-                       pin_memory: bool = False) -> torch.Tensor:
+def create_same_stride(
+    size: Tuple[int, ...],
+    other: torch.Tensor,
+    dtype: torch.dtype,
+    device: Union[str, torch.device],
+    pin_memory: bool = False,
+) -> torch.Tensor:
     if is_f_contig(other, strict=True):
         return create_fortran(size=size, dtype=dtype, device=device, pin_memory=pin_memory)
     elif is_contig(other):
@@ -211,10 +210,7 @@ def is_contig_vec(tensor: torch.Tensor) -> bool:
 def is_contig(tensor: torch.Tensor) -> bool:
     # noinspection PyArgumentList
     stride = tensor.stride()
-    for s in stride:
-        if s == 1:
-            return True
-    return False
+    return any(s == 1 for s in stride)
 
 
 def cast_tensor(tensor: torch.Tensor, dtype: torch.dtype, warn: bool = True) -> torch.Tensor:
@@ -232,12 +228,12 @@ def cast_tensor(tensor: torch.Tensor, dtype: torch.dtype, warn: bool = True) -> 
         raise RuntimeError("cast_tensor can only cast to float types")
 
     if warn:
-        warnings.warn("Changing type of %s tensor from %s to %s. "
-                      "This will use more memory. If possible change 'inter_type' and "
-                      "'final_type', or cast the original data to the appropriate type." %
-                      (tensor.size(), tensor.dtype, dtype))
-    out_np = tensor.numpy().astype(
-        np_dtype, order='K', casting='unsafe', copy=True)
+        warnings.warn(
+            f"Changing type of {tensor.size()} tensor from {tensor.dtype} to {dtype}. "
+            "This will use more memory. If possible change 'inter_type' and "
+            "'final_type', or cast the original data to the appropriate type."
+        )
+    out_np = tensor.numpy().astype(np_dtype, order="K", casting="unsafe", copy=True)
     return torch.from_numpy(out_np)
 
 

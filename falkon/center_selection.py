@@ -1,12 +1,12 @@
 import warnings
 from abc import ABC, abstractmethod
-from typing import Union, Tuple, Optional
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import torch
-from falkon.utils import check_random_generator
 
 from falkon.sparse import SparseTensor
+from falkon.utils import check_random_generator
 from falkon.utils.tensor_helpers import create_same_stride
 
 __all__ = ("CenterSelector", "FixedSelector", "UniformSelector")
@@ -23,6 +23,7 @@ class CenterSelector(ABC):
     random_gen
         A numpy random number generator object or a random seed.
     """
+
     def __init__(self, random_gen):
         self.random_gen = check_random_generator(random_gen)
 
@@ -42,7 +43,7 @@ class CenterSelector(ABC):
         X_centers
             If Y is None this is the only output: M centers selected from the data.
         Y_centers
-            If Y is not empty, a set of label centers shall be returned as well.
+            If Y is not None, a set of label centers will be returned as well.
         """
         pass
 
@@ -60,12 +61,11 @@ class CenterSelector(ABC):
         Returns
         -------
         X_centers
-            If Y is None this is the only output: M centers selected from the data.
+            M centers selected from the data.
         Y_centers
-            If Y is not empty, a set of label centers shall be returned as well.
+            If Y is not None, a set of label centers will be returned as well.
         indices
-            The indices in X associated with the chosen centers. Subclasses may not implement
-            this method, in which case a `NotImplementedError` will be raised.
+            The indices in X (and optionally Y) associated with the chosen centers.
         """
         pass
 
@@ -87,18 +87,18 @@ class FixedSelector(CenterSelector):
         is used in the :meth:`select_indices` method.
     """
 
-    def __init__(self,
-                 centers: _tensor_type,
-                 y_centers: Optional[torch.Tensor] = None,
-                 idx_centers: Optional[torch.Tensor] = None):
+    def __init__(
+        self,
+        centers: _tensor_type,
+        y_centers: Optional[torch.Tensor] = None,
+        idx_centers: Optional[torch.Tensor] = None,
+    ):
         super().__init__(random_gen=None)
         self.centers = centers
         self.idx_centers = idx_centers
         self.y_centers = y_centers
 
-    def select(self,
-               X: _tensor_type,
-               Y: Optional[torch.Tensor]) -> _opt_tns_tup:
+    def select(self, X: _tensor_type, Y: Optional[torch.Tensor]) -> _opt_tns_tup:
         """Returns the fixed centers with which this instance was created
 
         Parameters
@@ -131,9 +131,7 @@ class FixedSelector(CenterSelector):
             return self.centers, self.y_centers
         return self.centers
 
-    def select_indices(self,
-                       X: _tensor_type,
-                       Y: Optional[torch.Tensor]) -> _opt_tns_idx_tup:
+    def select_indices(self, X: _tensor_type, Y: Optional[torch.Tensor]) -> _opt_tns_idx_tup:
         """Returns the fixed centers, and their indices with which this instance was created
 
         Parameters
@@ -181,13 +179,12 @@ class UniformSelector(CenterSelector):
     num_centers
         The number of centers which should be selected by this class.
     """
+
     def __init__(self, random_gen, num_centers: int):
         self.num_centers = num_centers
         super().__init__(random_gen)
 
-    def select_indices(self,
-                       X: _tensor_type,
-                       Y: Optional[torch.Tensor]) -> _opt_tns_idx_tup:
+    def select_indices(self, X: _tensor_type, Y: Optional[torch.Tensor]) -> _opt_tns_idx_tup:
         """Select M observations from 2D tensor `X`, preserving device and memory order.
 
         The selection strategy is uniformly at random. To control the randomness,
@@ -222,8 +219,10 @@ class UniformSelector(CenterSelector):
         N = X.shape[0]
         num_centers = self.num_centers
         if num_centers > N:
-            warnings.warn("Number of centers M greater than the "
-                          f"number of data-points. Setting `num_centers` to {N}")
+            warnings.warn(
+                "Number of centers M greater than the " f"number of data-points. Setting `num_centers` to {N}",
+                stacklevel=2,
+            )
             num_centers = N
         idx = self.random_gen.choice(N, size=num_centers, replace=False)
 
@@ -231,24 +230,24 @@ class UniformSelector(CenterSelector):
             X_sp = X.to_scipy()
             centers = X_sp[idx, :].copy()
             Xc = SparseTensor.from_scipy(centers)
-            th_idx = torch.from_numpy(idx.astype(np.long)).to(X.device)
+            th_idx = torch.from_numpy(idx.astype(np.int64)).to(X.device)
         else:
-            Xc = create_same_stride((num_centers, X.shape[1]), other=X, dtype=X.dtype,
-                                    device=X.device, pin_memory=False)
-            th_idx = torch.from_numpy(idx.astype(np.long)).to(X.device)
+            Xc = create_same_stride(
+                (num_centers, X.shape[1]), other=X, dtype=X.dtype, device=X.device, pin_memory=False
+            )
+            th_idx = torch.from_numpy(idx.astype(np.int64)).to(X.device)
             torch.index_select(X, dim=0, index=th_idx, out=Xc)
 
         if Y is not None:
-            Yc = create_same_stride((num_centers, Y.shape[1]), other=Y, dtype=Y.dtype,
-                                    device=Y.device, pin_memory=False)
-            th_idx = torch.from_numpy(idx.astype(np.long)).to(Y.device)
+            Yc = create_same_stride(
+                (num_centers, Y.shape[1]), other=Y, dtype=Y.dtype, device=Y.device, pin_memory=False
+            )
+            th_idx = torch.from_numpy(idx.astype(np.int64)).to(Y.device)
             torch.index_select(Y, dim=0, index=th_idx, out=Yc)
             return Xc, Yc, th_idx
         return Xc, th_idx
 
-    def select(self,
-               X: _tensor_type,
-               Y: Optional[torch.Tensor]) -> _opt_tns_tup:
+    def select(self, X: _tensor_type, Y: Optional[torch.Tensor]) -> _opt_tns_tup:
         """Select M observations from 2D tensor `X`, preserving device and memory order.
 
         The selection strategy is uniformly at random. To control the randomness,

@@ -2,15 +2,16 @@ import math
 import threading
 from typing import List, Optional
 
-from falkon.cuda import initialization
-from falkon.utils import devices, PropagatingThread
-from falkon.utils.tensor_helpers import copy_same_stride
-from falkon.utils.helpers import sizeof_dtype
-from falkon.utils.tensor_helpers import is_f_contig, is_contig
-from falkon.utils.stream_utils import sync_current_stream
+import torch
+
 from falkon.options import FalkonOptions
+from falkon.utils import PropagatingThread, devices
+from falkon.utils.helpers import sizeof_dtype
+from falkon.utils.stream_utils import sync_current_stream
+from falkon.utils.tensor_helpers import copy_same_stride, is_contig, is_f_contig
+
 from .ooc_utils import calc_block_sizes3
-from .parallel_lauum import par_lauum_f_lower, par_lauum_c_lower, BlockAlloc
+from .parallel_lauum import BlockAlloc, par_lauum_c_lower, par_lauum_f_lower
 
 __all__ = ("gpu_lauum",)
 
@@ -40,8 +41,8 @@ def _parallel_lauum_runner(A, write_opposite: bool, gpu_info):
             max_block_size = int(math.floor((-2 * N + math.sqrt(4 * N**2 + 8 * avail_ram)) / 4))
         if max_block_size < 1:
             raise RuntimeError(
-                "Cannot run parallel LAUUM with minimum "
-                "available memory of %.2fMB" % (avail_ram * dts / 2**20))
+                f"Cannot run parallel LAUUM with minimum available memory of {avail_ram * dts / 2**20:.2f}MB"
+            )
         # All computations on the same device (where data is stored). No multi-GPU support!
         block_sizes = calc_block_sizes3(max_block_size, 1, N)
     else:  # Out-of-core
@@ -56,8 +57,8 @@ def _parallel_lauum_runner(A, write_opposite: bool, gpu_info):
             max_block_size = int(math.floor((-2 * N + math.sqrt(4 * N**2 + 8 * avail_ram)) / 4))
         if max_block_size < 1:
             raise RuntimeError(
-                "Cannot run parallel LAUUM with minimum "
-                "available memory of %.2fMB" % (avail_ram * dts / 2**20))
+                f"Cannot run parallel LAUUM with minimum available memory of {avail_ram * dts / 2**20:.2f}MB"
+            )
 
         block_sizes = calc_block_sizes3(max_block_size, len(gpu_info), N)
 
@@ -77,12 +78,11 @@ def _parallel_lauum_runner(A, write_opposite: bool, gpu_info):
         # Assign rows to GPUs round-robin. Use _gpu_idx instead of g.Id since the latter
         # may not contain all integers from 0.
         gid_allocs = [i for i in range(len(block_allocations)) if i % num_gpus == _gpu_idx]
-        cublas_handle = initialization.cublas_handle(g.Id)
-        if cublas_handle is None:
-            raise RuntimeError("CUBLAS must be initialized "
-                               "on device %d before running parallel LAUUM." % (g.Id))
-        t = PropagatingThread(target=target, name="GPU-%d" % (g.Id), args=(
-            A, block_allocations, gid_allocs, barrier, g.Id, cublas_handle, write_opposite))
+        t = PropagatingThread(
+            target=target,
+            name=f"GPU-{g.Id}",
+            args=(A, block_allocations, gid_allocs, barrier, g.Id, write_opposite),
+        )
         threads.append(t)
 
     for t in threads:
@@ -92,23 +92,37 @@ def _parallel_lauum_runner(A, write_opposite: bool, gpu_info):
     return A
 
 
-def gpu_lauum(A, upper, overwrite=True, write_opposite=False, opt: Optional[FalkonOptions] = None):
+def gpu_lauum(
+    A: torch.Tensor,
+    upper: bool,
+    overwrite: bool = True,
+    write_opposite: bool = False,
+    opt: Optional[FalkonOptions] = None,
+):
     """
     Parameters
     -----------
     A : torch.Tensor
-        (N x N) positive-definite matrix that will be factorized as
-        A = U.T @ U (if `upper` is True) or A = L @ L.T if `upper`
-        is False.
+        N-by-N triangular matrix.
+    upper: bool
+        Whether the input matrix is upper or lower triangular.
     overwrite : bool
-        Whether to overwrite matrix A or to output the result in a new
-        buffer.
-
+        Whether to overwrite matrix A or to output the result in a new buffer.
+    write_opposite : bool
+        Independently of the ``overwrite`` parameter, whether to write the result of the
+        triangular multiplication on the 'opposite' side of ``A``. For example, if ``upper == True``
+        and ``overwrite == False``, then the result will be written on the lower triangular part
+        of the input matrix ``A``.
+        While independent, this is mostly useful when ``overwrite == False``, since it can
+        effectively avoid allocating a new tensor, and at the same time preserve the original data.
+    opt: FalkonOptions or None
+        Options for the LAUUM operation. The only relevant options are the one connected to
+        GPU memory usage.
     Returns
     -------
     out : torch.Tensor
-        A (N x N) tensor. This will share the same memory as the input tensor `A` if `overwrite`
-        is set to True, otherwise it will be a newly allocated tensor.
+        A (N x N) tensor. This will share the same memory as the input tensor ``A`` if ``overwrite``
+        is set to ``True``, otherwise it will be a newly allocated tensor.
     """
     if opt is None:
         opt = FalkonOptions()
@@ -117,13 +131,11 @@ def gpu_lauum(A, upper, overwrite=True, write_opposite=False, opt: Optional[Falk
     # TODO: There is a helper function in mmv_ops for this.
     gpu_info = [v for k, v in devices.get_device_info(opt).items() if k >= 0]
     for g in gpu_info:
-        g.actual_free_mem = min((g.free_memory - 300 * 2 ** 20) * 0.95,
-                                opt.max_gpu_mem * 0.95)
+        g.actual_free_mem = min((g.free_memory - 300 * 2**20) * 0.95, opt.max_gpu_mem * 0.95)
 
     # Parallel can only do lower C or F-contiguous arrays
     # By transposing as necessary, it is able to run with every combination of inputs.
     transposed = False
-    # noinspection PyUnresolvedReferences
     if upper:
         A = A.T
         transposed = True

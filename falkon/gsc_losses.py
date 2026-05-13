@@ -1,5 +1,5 @@
 import dataclasses
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 
 import torch
@@ -40,10 +40,7 @@ class Loss(ABC):
     :class:`falkon.models.LogisticFalkon` : the logistic Falkon model which uses GSC losses.
     """
 
-    def __init__(self,
-                 name: str,
-                 kernel: falkon.kernels.Kernel,
-                 opt: Optional[FalkonOptions] = None):
+    def __init__(self, name: str, kernel: falkon.kernels.Kernel, opt: Optional[FalkonOptions] = None):
         self.name = name
         self.kernel = kernel
         self.params = opt or FalkonOptions()
@@ -112,12 +109,9 @@ class Loss(ABC):
         """
         pass
 
-    def knmp_grad(self,
-                  X: torch.Tensor,
-                  Xc: torch.Tensor,
-                  Y: torch.Tensor,
-                  u: torch.Tensor,
-                  opt: Optional[FalkonOptions] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def knmp_grad(
+        self, X: torch.Tensor, Xc: torch.Tensor, Y: torch.Tensor, u: torch.Tensor, opt: Optional[FalkonOptions] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""Computes a kernel vector product where the vector is the first derivative of this loss
 
         Given kernel function :math:`K`, the loss represented by this class :math:`\mathcal{l}`,
@@ -161,13 +155,15 @@ class Loss(ABC):
         out.mul_(1 / X.shape[0])
         return out, func_val
 
-    def knmp_hess(self,
-                  X: torch.Tensor,
-                  Xc: torch.Tensor,
-                  Y: torch.Tensor,
-                  f: torch.Tensor,
-                  u: torch.Tensor,
-                  opt: Optional[FalkonOptions] = None) -> torch.Tensor:
+    def knmp_hess(
+        self,
+        X: torch.Tensor,
+        Xc: torch.Tensor,
+        Y: torch.Tensor,
+        f: torch.Tensor,
+        u: torch.Tensor,
+        opt: Optional[FalkonOptions] = None,
+    ) -> torch.Tensor:
         r"""Compute a kernel-vector product with a rescaling with the second derivative
 
         Given kernel function :math:`K`, the loss represented by this class :math:`\mathcal{l}`,
@@ -214,7 +210,8 @@ class Loss(ABC):
 
 
 class LogisticLoss(Loss):
-    """Wrapper for the logistic loss, to be used in conjunction with the :class:`~falkon.models.LogisticFalkon` estimator.
+    """Wrapper for the logistic loss, to be used in conjunction with the
+    :class:`~falkon.models.LogisticFalkon` estimator.
 
     Usage of this loss assumes a binary classification problem with labels -1 and +1. For different
     choices of labels, see :class:`WeightedCrossEntropyLoss`.
@@ -317,11 +314,12 @@ class LogisticLoss(Loss):
         return out
 
     def __repr__(self):
-        return "LogisticLoss(kernel=%r)" % (self.kernel)
+        return f"LogisticLoss(kernel={self.kernel})"
 
 
 class WeightedCrossEntropyLoss(Loss):
-    r"""Wrapper for the weighted binary cross-entropy loss, to be used with the :class:`~falkon.models.LogisticFalkon` estimator.
+    r"""Wrapper for the weighted binary cross-entropy loss, to be used with the
+    :class:`~falkon.models.LogisticFalkon` estimator.
 
     Using this loss assumes a binary classification problem with labels 0 and +1. Additionally,
     this loss allows to place a different weight to samples belonging to one of the two classes
@@ -348,10 +346,8 @@ class WeightedCrossEntropyLoss(Loss):
     >>> estimator = falkon.LogisticFalkon(k, [1e-4, 1e-4, 1e-4], [3, 3, 3], loss=wce_loss, M=100)
 
     """
-    def __init__(self,
-                 kernel: falkon.kernels.Kernel,
-                 neg_weight: float,
-                 opt: Optional[FalkonOptions] = None):
+
+    def __init__(self, kernel: falkon.kernels.Kernel, neg_weight: float, opt: Optional[FalkonOptions] = None):
         super().__init__(name="WeightedCrossEntropy", kernel=kernel, opt=opt)
         self.neg_weight = neg_weight
 
@@ -380,7 +376,7 @@ class WeightedCrossEntropyLoss(Loss):
         class1 = true * torch.log(torch.tensor(1, dtype=pred.dtype) + torch.exp(-pred))
         class0 = self.neg_weight * (1 - true) * torch.log(torch.tensor(1, dtype=pred.dtype) + torch.exp(pred))
 
-        return (class1 + class0)
+        return class1 + class0
 
     def df(self, true: torch.Tensor, pred: torch.Tensor) -> torch.Tensor:
         r"""Compute the derivative of the weighted BCE loss with respect to `pred`
@@ -436,4 +432,4 @@ class WeightedCrossEntropyLoss(Loss):
         return (-num).div_(den)
 
     def __repr__(self):
-        return "WeightedCrossEntropy(kernel=%r)" % (self.kernel)
+        return f"WeightedCrossEntropy(kernel={self.kernel}"

@@ -4,15 +4,14 @@ import unittest
 import numpy as np
 import pytest
 import torch
-from falkon.utils.tensor_helpers import move_tensor
-
-from falkon.options import FalkonOptions
 
 from falkon.kernels import GaussianKernel
+from falkon.options import FalkonOptions
 from falkon.preconditioner import FalkonPreconditioner
 from falkon.tests.conftest import fix_mat
 from falkon.tests.gen_random import gen_random
 from falkon.utils import decide_cuda
+from falkon.utils.tensor_helpers import move_tensor
 
 
 def assert_invariant_on_TT(prec, kMM, tol=1e-8):
@@ -34,7 +33,7 @@ def assert_invariant_on_AT(prec, kMM, la, tol=1e-8):
     """
     M = kMM.shape[0]
     T = prec.invTt(kMM)
-    ATA = (1. / M) * T @ T.T + la * torch.eye(M, dtype=kMM.dtype, device=kMM.device)
+    ATA = (1.0 / M) * T @ T.T + la * torch.eye(M, dtype=kMM.dtype, device=kMM.device)
     A = prec.invAt(ATA)
     assert A.dtype == kMM.dtype, "Wrong data-type"
 
@@ -73,10 +72,7 @@ N = 50_000  # Used only for normalization.
 
 @pytest.fixture()
 def rtol():
-    return {
-        np.float64: 1e-10,
-        np.float32: 1e-2
-    }
+    return {np.float64: 1e-10, np.float32: 1e-2}
 
 
 @pytest.fixture(scope="module")
@@ -86,7 +82,7 @@ def kernel():
 
 @pytest.fixture(scope="module")
 def mat():
-    return gen_random(M, M, 'float64', F=True, seed=10)
+    return gen_random(M, M, "float64", F=True, seed=10)
 
 
 @pytest.fixture(scope="module")
@@ -95,10 +91,11 @@ def gram(kernel, mat):
     return kernel(torch.from_numpy(mat), torch.from_numpy(mat), opt=opt)
 
 
-@pytest.mark.parametrize("cpu", [
-    pytest.param(True),
-    pytest.param(False, marks=[pytest.mark.skipif(not decide_cuda(), reason="No GPU found.")])
-], ids=["cpu", "gpu"])
+@pytest.mark.parametrize(
+    "cpu",
+    [pytest.param(True), pytest.param(False, marks=[pytest.mark.skipif(not decide_cuda(), reason="No GPU found.")])],
+    ids=["cpu", "gpu"],
+)
 class TestFalkonPreconditioner:
     basic_opt = FalkonOptions(compute_arch_speed=False, no_single_kernel=True)
 

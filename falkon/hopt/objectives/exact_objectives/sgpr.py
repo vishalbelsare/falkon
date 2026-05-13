@@ -1,6 +1,5 @@
-from typing import Optional, Dict
+from typing import Dict, Optional
 
-import numpy as np
 import torch
 
 import falkon.kernels
@@ -11,17 +10,16 @@ from falkon.hopt.utils import get_scalar
 
 class SGPR(HyperoptObjective):
     def __init__(
-            self,
-            kernel: falkon.kernels.DiffKernel,
-            centers_init: torch.Tensor,
-            penalty_init: torch.Tensor,
-            opt_centers: bool,
-            opt_penalty: bool,
-            centers_transform: Optional[torch.distributions.Transform] = None,
-            pen_transform: Optional[torch.distributions.Transform] = None, ):
-        super(SGPR, self).__init__(kernel, centers_init, penalty_init,
-                                   opt_centers, opt_penalty,
-                                   centers_transform, pen_transform)
+        self,
+        kernel: falkon.kernels.DiffKernel,
+        centers_init: torch.Tensor,
+        penalty_init: torch.Tensor,
+        opt_centers: bool,
+        opt_penalty: bool,
+        centers_transform: Optional[torch.distributions.Transform] = None,
+        pen_transform: Optional[torch.distributions.Transform] = None,
+    ):
+        super().__init__(kernel, centers_init, penalty_init, opt_centers, opt_penalty, centers_transform, pen_transform)
         self.x_train, self.y_train = None, None
         self.losses: Optional[Dict[str, torch.Tensor]] = None
 
@@ -42,7 +40,7 @@ class SGPR(HyperoptObjective):
         trace = 0.5 * Kdiag / variance
         trace -= 0.5 * torch.diag(AAT).sum()
 
-        const = 0.5 * X.shape[0] * torch.log(torch.tensor(2 * np.pi, dtype=X.dtype))
+        # const = 0.5 * X.shape[0] * torch.log(torch.tensor(2 * np.pi, dtype=X.dtype))
 
         self._save_losses(logdet, datafit, trace)
         return logdet + datafit + trace
@@ -53,8 +51,8 @@ class SGPR(HyperoptObjective):
         with torch.autograd.no_grad():
             L, A, AAT, LB, c = self._calc_intermediate(self.x_train, self.y_train)
             kms = self.kernel(self.centers, X)
-            tmp1 = torch.triangular_solve(kms, L, upper=False).solution
-            tmp2 = torch.triangular_solve(tmp1, LB, upper=False).solution
+            tmp1 = torch.linalg.solve_triangular(L, kms, upper=False)
+            tmp2 = torch.linalg.solve_triangular(LB, tmp1, upper=False)
             return tmp2.T @ c
 
     def _save_losses(self, log_det, datafit, trace):
@@ -73,18 +71,20 @@ class SGPR(HyperoptObjective):
         L = jittering_cholesky(kmm)
 
         # A = L^{-1} K_mn / (sqrt(n*pen))
-        A = torch.triangular_solve(kmn, L, upper=False).solution / sqrt_var
+        A = torch.linalg.solve_triangular(L, kmn, upper=False) / sqrt_var
         AAT = A @ A.T
         # B = A @ A.T + I
         B = AAT + torch.eye(AAT.shape[0], device=X.device, dtype=X.dtype)
         LB = jittering_cholesky(B)  # LB @ LB.T = B
         AY = A @ Y
-        c = torch.triangular_solve(AY, LB, upper=False).solution / sqrt_var
+        c = torch.linalg.solve_triangular(LB, AY, upper=False) / sqrt_var
 
         return L, A, AAT, LB, c
 
     def __repr__(self):
-        return f"SGPR(" \
-               f"kernel={self.kernel}, " \
-               f"penalty={get_scalar(self.penalty)}, " \
-               f"num_centers={self.centers.shape[0]})"
+        return (
+            f"SGPR("
+            f"kernel={self.kernel}, "
+            f"penalty={get_scalar(self.penalty)}, "
+            f"num_centers={self.centers.shape[0]})"
+        )

@@ -3,8 +3,8 @@ import numbers
 import numpy as np
 
 from .switches import decide_cuda
-from .tictoc import TicToc
 from .threading import PropagatingThread
+from .tictoc import TicToc
 
 __all__ = ("PropagatingThread", "TicToc", "decide_cuda", "check_random_generator")
 
@@ -26,5 +26,4 @@ def check_random_generator(seed):
         return np.random.default_rng(seed)
     if isinstance(seed, np.random.Generator):
         return seed
-    raise ValueError('%r cannot be used to seed a numpy.random.RandomState'
-                     ' instance' % seed)
+    raise ValueError(f"{seed!r} cannot be used to seed a numpy.random.RandomState instance")

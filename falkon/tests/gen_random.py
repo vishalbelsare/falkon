@@ -1,8 +1,9 @@
 import numpy as np
 import scipy.sparse
+import torch
 
+from falkon.c_ext import copy_triang
 from falkon.sparse.sparse_tensor import SparseTensor
-from falkon.la_helpers.cyblas import copy_triang
 
 
 def gen_random_multi(*sizes, dtype, F=False, seed=0):
@@ -22,25 +23,21 @@ def gen_random(a, b, dtype, F=False, seed=0):
 
 
 def gen_random_pd(t, dtype, F=False, seed=0):
-    A = gen_random(t, t, dtype, F, seed)
+    A = torch.from_numpy(gen_random(t, t, dtype, F, seed))
     copy_triang(A, upper=True)
-    # A += A.T
-    # A *= 2
-    # A += 20
     A *= 1
     A += 2
-    A.flat[::t + 1] += t * 4
+    A += torch.eye(t, dtype=A.dtype) * t * 4
     return A
 
 
-def gen_sparse_matrix(a, b, dtype, density=0.1, seed=0, sparse_fromat='csr') -> SparseTensor:
+def gen_sparse_matrix(a, b, dtype, density=0.1, seed=0, sparse_fromat="csr") -> SparseTensor:
     out = random_sparse(a, b, density=density, sparse_format=sparse_fromat, dtype=dtype, seed=seed)
 
     return SparseTensor.from_scipy(out)
 
 
-def random_sparse(m, n, density=0.01, sparse_format='coo', dtype=None,
-                  seed=None, data_rvs=None):
+def random_sparse(m, n, density=0.01, sparse_format="coo", dtype=None, seed=None, data_rvs=None):
     # noinspection PyArgumentList
     dtype = np.dtype(dtype)
     mn = m * n
@@ -59,7 +56,7 @@ def random_sparse(m, n, density=0.01, sparse_format='coo', dtype=None,
     generator = np.random.default_rng(seed)
     ind = generator.choice(mn, size=k, replace=False)
 
-    j = np.floor(ind * 1. / m).astype(tp, copy=False)
+    j = np.floor(ind * 1.0 / m).astype(tp, copy=False)
     i = (ind - j * m).astype(tp, copy=False)
     # noinspection PyArgumentList
     vals = data_rvs(k).astype(dtype, copy=False)

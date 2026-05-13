@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 import torch
 
@@ -35,17 +35,16 @@ class LOOCV(HyperoptObjective):
     """
 
     def __init__(
-            self,
-            kernel: falkon.kernels.DiffKernel,
-            centers_init: torch.Tensor,
-            penalty_init: torch.Tensor,
-            opt_centers: bool,
-            opt_penalty: bool,
-            centers_transform: Optional[torch.distributions.Transform] = None,
-            pen_transform: Optional[torch.distributions.Transform] = None, ):
-        super(LOOCV, self).__init__(kernel, centers_init, penalty_init,
-                                    opt_centers, opt_penalty,
-                                    centers_transform, pen_transform)
+        self,
+        kernel: falkon.kernels.DiffKernel,
+        centers_init: torch.Tensor,
+        penalty_init: torch.Tensor,
+        opt_centers: bool,
+        opt_penalty: bool,
+        centers_transform: Optional[torch.distributions.Transform] = None,
+        pen_transform: Optional[torch.distributions.Transform] = None,
+    ):
+        super().__init__(kernel, centers_init, penalty_init, opt_centers, opt_penalty, centers_transform, pen_transform)
         self.x_train, self.y_train = None, None
         self.losses: Optional[Dict[str, torch.Tensor]] = None
 
@@ -71,8 +70,8 @@ class LOOCV(HyperoptObjective):
         with torch.autograd.no_grad():
             L, A, LB, C, c = self._calc_intermediate(self.x_train, self.y_train)
             # Predictions are handled directly.
-            tmp1 = torch.triangular_solve(c, LB, upper=False, transpose=True).solution
-            tmp2 = torch.triangular_solve(tmp1, L, upper=False, transpose=True).solution
+            tmp1 = torch.linalg.solve_triangular(LB.T, c, upper=True)
+            tmp2 = torch.linalg.solve_triangular(L.T, tmp1, upper=True)
             kms = self.kernel(self.centers, X)
             return kms.T @ tmp2
 
@@ -84,13 +83,13 @@ class LOOCV(HyperoptObjective):
         kmn = self.kernel(self.centers, X)
         kmm = self.kernel(self.centers, self.centers)
         L = jittering_cholesky(kmm)  # L @ L.T = kmm
-        A = torch.triangular_solve(kmn, L, upper=False).solution / sqrt_var  # m, n
+        A = torch.linalg.solve_triangular(L, kmn, upper=False) / sqrt_var  # m, n
         AAT = A @ A.T  # m, m
         B = AAT + torch.eye(AAT.shape[0], device=X.device, dtype=X.dtype)  # m, m
         LB = jittering_cholesky(B)  # LB @ LB.T = B  m, m
 
         # C = LB^{-1} A
-        C = torch.triangular_solve(A, LB, upper=False).solution  # m, n
+        C = torch.linalg.solve_triangular(LB, A, upper=False)  # m, n
 
         c = C @ Y / sqrt_var
         return L, A, LB, C, c
@@ -101,7 +100,9 @@ class LOOCV(HyperoptObjective):
         }
 
     def __repr__(self):
-        return f"NystromLOOCV(" \
-               f"kernel={self.kernel}, " \
-               f"penalty={get_scalar(self.penalty)}, " \
-               f"num_centers={self.centers.shape[0]})"
+        return (
+            f"NystromLOOCV("
+            f"kernel={self.kernel}, "
+            f"penalty={get_scalar(self.penalty)}, "
+            f"num_centers={self.centers.shape[0]})"
+        )

@@ -1,12 +1,11 @@
 import math
-from typing import Optional, Union, List, Type
+from typing import List, Optional, Type, Union
 
 import numpy as np
 import torch
 import torch.multiprocessing
 
 from falkon.sparse.sparse_tensor import SparseTensor
-
 
 __all__ = (
     "select_dim_over_n",
@@ -25,49 +24,50 @@ __all__ = (
 
 def solve_quad(a, b, c):
     if a == 0:
-        return float('inf')
-    return (-b + math.sqrt(b ** 2 - 4 * a * c)) / (2 * a)
+        return float("inf")
+    return (-b + math.sqrt(b**2 - 4 * a * c)) / (2 * a)
 
 
 def solve_lin(b, c):
-    return - c / b
+    return -c / b
 
 
-def select_dim_over_bnm(max_b, max_n, max_m, d, coef_bnd, coef_bmd, coef_bnm, coef_bn, coef_bm,
-                        rest, max_mem):
+def select_dim_over_bnm(max_b, max_n, max_m, d, coef_bnd, coef_bmd, coef_bnm, coef_bn, coef_bm, rest, max_mem):
     def calc_used_mem(b_, n_, m_):
-        return (coef_bnd * b_ * n_ * d +
-                coef_bmd * b_ * m_ * d +
-                coef_bnm * b_ * n_ * m_ +
-                coef_bn * b_ * n_ +
-                coef_bm * b_ * m_ +
-                rest)
+        return (
+            coef_bnd * b_ * n_ * d
+            + coef_bmd * b_ * m_ * d
+            + coef_bnm * b_ * n_ * m_
+            + coef_bn * b_ * n_
+            + coef_bm * b_ * m_
+            + rest
+        )
 
     if calc_used_mem(1, max_n, max_m) < max_mem:
         # find min-b which fits
         n, m = max_n, max_m
-        b = solve_lin(b=(coef_bnd * n * d +
-                         coef_bmd * m * d +
-                         coef_bnm * n * m +
-                         coef_bn * n +
-                         coef_bm * m),
-                      c=rest - max_mem)
+        b = solve_lin(
+            b=(coef_bnd * n * d + coef_bmd * m * d + coef_bnm * n * m + coef_bn * n + coef_bm * m), c=rest - max_mem
+        )
     elif calc_used_mem(1, 1, max_m) < max_mem:
         # find min-n which fits
         b, m = 1, max_m
-        n = solve_lin(b=coef_bnd * b * d + coef_bnm * b * m + coef_bn * b,
-                      c=rest + coef_bmd * b * m * d + coef_bm * b * m - max_mem)
+        n = solve_lin(
+            b=coef_bnd * b * d + coef_bnm * b * m + coef_bn * b,
+            c=rest + coef_bmd * b * m * d + coef_bm * b * m - max_mem,
+        )
     else:
         # find min-m which fits
         b, n = 1, 1
-        m = solve_lin(b=coef_bmd * b * d + coef_bnm * b * n + coef_bm * b,
-                      c=rest + coef_bnd * b * n * d + coef_bn * b * n - max_m)
+        m = solve_lin(
+            b=coef_bmd * b * d + coef_bnm * b * n + coef_bm * b, c=rest + coef_bnd * b * n * d + coef_bn * b * n - max_m
+        )
 
     out_b = int(min(b, max_b))
     out_n = int(min(n, max_n))
     out_m = int(min(m, max_m))
     if out_b <= 0 or out_n <= 0 or out_m <= 0:
-        raise MemoryError("Available memory %.2fMB is not enough." % (max_mem / 2 ** 20))
+        raise MemoryError("Available memory %.2fMB is not enough." % (max_mem / 2**20))
     return out_b, out_n, out_m
 
 
@@ -75,7 +75,7 @@ def select_dim_over_n(max_n, m, d, coef_nm, coef_nd, coef_md, coef_n, coef_m, co
     """
     n * (m * coef_nm + d * coef_nd + coef_n) + rest <= max_mem
     """
-    n_coef = (m * coef_nm + d * coef_nd + coef_n)
+    n_coef = m * coef_nm + d * coef_nd + coef_n
     rest_mem = rest + coef_md * m * d + coef_m * m + coef_d * d
     v_n = (max_mem - rest_mem) / n_coef
 
@@ -134,12 +134,9 @@ def select_dim_over_nm(max_n, max_m, d, coef_nd, coef_md, coef_nm, coef_n, coef_
     if coef_nm == 0 and (coef_nd == 0 and coef_md == 0 and coef_n == 0 and coef_m == 0):
         v_n = max_n
     elif coef_nm == 0:
-        v_n = solve_lin(b=d * (coef_nd + fac * coef_md) + coef_n + coef_m * fac,
-                        c=rest - max_mem)
+        v_n = solve_lin(b=d * (coef_nd + fac * coef_md) + coef_n + coef_m * fac, c=rest - max_mem)
     else:
-        v_n = solve_quad(a=fac * coef_nm,
-                         b=d * (fac * coef_md + coef_nd) + fac * coef_m + coef_n,
-                         c=rest - max_mem)
+        v_n = solve_quad(a=fac * coef_nm, b=d * (fac * coef_md + coef_nd) + fac * coef_m + coef_n, c=rest - max_mem)
     v_m = fac * v_n
 
     out_n = int(min(v_n, max_n))
@@ -184,7 +181,7 @@ def select_dim_over_nd(max_n, max_d, coef_nd, coef_n, coef_d, rest, max_mem):
     n = int(min(max_n, n))
     d = int(min(max_d, d))
     if n <= 0 or d <= 0:
-        raise MemoryError("Available memory %.2fMB is not enough." % (max_mem / 2 ** 20))
+        raise MemoryError(f"Available memory {max_mem / 2**20:.2f}MB is not enough.")
     return n, d
 
 
@@ -193,13 +190,14 @@ def select_dim_over_nm_v2(max_n, max_m, coef_nm, coef_n, coef_m, rest, max_mem):
     solves the problem, max n*m such that n <= maxN, m <= maxM and
     coef_nm*nm + coef_n*n + coef_m*m <= tot
     """
-    return select_dim_over_nd(max_n=max_n, max_d=max_m, coef_nd=coef_nm, coef_n=coef_n, coef_d=coef_m,
-                              rest=rest, max_mem=max_mem)
+    return select_dim_over_nd(
+        max_n=max_n, max_d=max_m, coef_nd=coef_nm, coef_n=coef_n, coef_d=coef_m, rest=rest, max_mem=max_mem
+    )
 
 
 def calc_gpu_block_sizes(device_info, tot_size):
-    gpu_speed = np.array([g.speed for g in device_info])
-    speed_frac = np.array(gpu_speed) / np.sum(gpu_speed)
+    gpu_speed = np.asarray([g.speed for g in device_info])
+    speed_frac = np.asarray(gpu_speed) / np.sum(gpu_speed)
 
     block_sizes = np.cumsum(np.concatenate(([0], speed_frac))) * tot_size
     block_sizes[0] = 0
@@ -221,7 +219,7 @@ def choose_fn(dtype, f64_fn, f32_fn, fn_name):
     if dtype == np.float32:
         return f32_fn
 
-    raise TypeError("No %s function exists for data type %s." % (fn_name, dtype))
+    raise TypeError(f"No {fn_name} function exists for data type {dtype}.")
 
 
 def sizeof_dtype(dtype: Union[torch.dtype, np.dtype, Type]) -> int:
@@ -237,14 +235,11 @@ def sizeof_dtype(dtype: Union[torch.dtype, np.dtype, Type]) -> int:
     if dtype == np.float32:
         return 4
 
-    raise TypeError("Dtype %s not valid" % (dtype))
+    raise TypeError(f"Dtype {dtype} not valid")
 
 
 def check_sparse(*args: Union[torch.Tensor, SparseTensor]) -> List[bool]:
-    out = []
-    for t in args:
-        out.append(isinstance(t, SparseTensor))
-    return out
+    return [isinstance(t, SparseTensor) for t in args]
 
 
 def check_same_dtype(*args: Optional[Union[torch.Tensor, SparseTensor]]) -> bool:

@@ -2,10 +2,7 @@ import os
 
 from torch.utils.tensorboard import SummaryWriter
 
-
-__all__ = (
-    "get_writer",
-)
+__all__ = ("get_writer",)
 
 LOG_DIR = "./logs/tensorboard"
 _writer = None
@@ -22,4 +19,3 @@ def get_writer(name=None):
 
     _writer = SummaryWriter(log_dir=log_dir, max_queue=5, flush_secs=30)
     return _writer
-

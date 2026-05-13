@@ -1,4 +1,4 @@
-from typing import Sequence, Tuple, Optional
+from typing import Optional, Sequence, Tuple
 
 import torch
 
@@ -11,12 +11,14 @@ def init_random_vecs(n, t, dtype, device, gaussian_random: bool):
     return Z
 
 
-def calc_grads_tensors(inputs: Sequence[torch.Tensor],
-                       inputs_need_grad: Sequence[bool],
-                       num_nondiff_inputs: int,
-                       output: torch.Tensor,
-                       retain_graph: bool,
-                       allow_unused: bool) -> Tuple[Optional[torch.Tensor], ...]:
+def calc_grads_tensors(
+    inputs: Sequence[torch.Tensor],
+    inputs_need_grad: Sequence[bool],
+    num_nondiff_inputs: int,
+    output: torch.Tensor,
+    retain_graph: bool,
+    allow_unused: bool,
+) -> Tuple[Optional[torch.Tensor], ...]:
     """
 
     Parameters
@@ -55,12 +57,11 @@ def calc_grads_tensors(inputs: Sequence[torch.Tensor],
         if i >= num_nondiff_inputs:
             saved_idx += 1
 
-    grads = torch.autograd.grad(
-        output, needs_grad, retain_graph=retain_graph, allow_unused=allow_unused)
+    grads = torch.autograd.grad(output, needs_grad, retain_graph=retain_graph, allow_unused=allow_unused)
 
     grads_idx = 0
     results = []
-    for i, i_grad in enumerate(inputs_need_grad):
+    for _, i_grad in enumerate(inputs_need_grad):
         if i_grad:
             results.append(grads[grads_idx])
             grads_idx += 1
@@ -70,5 +71,6 @@ def calc_grads_tensors(inputs: Sequence[torch.Tensor],
 
 
 def calc_grads(ctx, output, num_nondiff_inputs):
-    return calc_grads_tensors(ctx.saved_tensors, ctx.needs_input_grad, num_nondiff_inputs,
-                              output, retain_graph=True, allow_unused=True)
+    return calc_grads_tensors(
+        ctx.saved_tensors, ctx.needs_input_grad, num_nondiff_inputs, output, retain_graph=True, allow_unused=True
+    )

@@ -1,6 +1,6 @@
 from threading import Thread
 
-__all__ = ("PropagatingThread", )
+__all__ = ("PropagatingThread",)
 
 
 class PropagatingThread(Thread):
@@ -9,6 +9,7 @@ class PropagatingThread(Thread):
     Copied from question:
     https://stackoverflow.com/questions/2829329/catch-a-threads-exception-in-the-caller-thread-in-python
     """
+
     def run(self):
         self.exc = None
         try:
@@ -17,7 +18,7 @@ class PropagatingThread(Thread):
             self.exc = e
 
     def join(self, timeout=None):
-        super(PropagatingThread, self).join(timeout=timeout)
+        super().join(timeout=timeout)
         if self.exc:
-            raise RuntimeError('Exception in thread %s' % (self.name)) from self.exc
+            raise RuntimeError(f"Exception in thread {self.name}") from self.exc
         return self.ret

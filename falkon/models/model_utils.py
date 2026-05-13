@@ -1,33 +1,33 @@
 import warnings
-from abc import abstractmethod, ABC
-from typing import Union, Optional, Tuple
+from abc import ABC, abstractmethod
+from typing import Optional, Tuple, Union
 
-from sklearn import base
 import numpy as np
 import torch
+from sklearn import base
 
 import falkon
 from falkon import FalkonOptions
-from falkon.utils.tensor_helpers import is_f_contig
-from falkon.utils.helpers import check_same_dtype, sizeof_dtype
-from falkon.utils import decide_cuda, devices
 from falkon.kernels.keops_helpers import should_use_keops
 from falkon.sparse import SparseTensor
-from falkon.utils import check_random_generator
+from falkon.utils import check_random_generator, decide_cuda, devices
+from falkon.utils.helpers import check_same_dtype, sizeof_dtype
+from falkon.utils.tensor_helpers import is_f_contig
 
 _tensor_type = Union[torch.Tensor, SparseTensor]
 
 
 class FalkonBase(base.BaseEstimator, ABC):
-    def __init__(self,
-                 kernel: falkon.kernels.Kernel,
-                 M: Optional[int],
-                 center_selection: Union[str, falkon.center_selection.CenterSelector] = 'uniform',
-                 seed: Optional[int] = None,
-                 error_fn: Optional[callable] = None,
-                 error_every: Optional[int] = 1,
-                 options: Optional[FalkonOptions] = None,
-                 ):
+    def __init__(
+        self,
+        kernel: falkon.kernels.Kernel,
+        M: Optional[int],
+        center_selection: Union[str, falkon.center_selection.CenterSelector] = "uniform",
+        seed: Optional[int] = None,
+        error_fn: Optional[callable] = None,
+        error_every: Optional[int] = 1,
+        options: Optional[FalkonOptions] = None,
+    ):
         self.kernel = kernel
         self.M = M
         self.seed = seed
@@ -39,48 +39,63 @@ class FalkonBase(base.BaseEstimator, ABC):
         self.error_every = error_every
         # Options
         self.options = options or FalkonOptions()
-        self._cg_options = self.options.get_conjgrad_options()
-        self._keops_options = self.options.get_keops_options()
-        self._pc_options = self.options.get_pc_options()
-        self._cholesky_opt = self.options.get_chol_options()
-        self._base_opt = self.options.get_base_options()
 
         self.use_cuda_ = decide_cuda(self.options)
         self.num_gpus = 0
         self.alpha_ = None
         self.ny_points_ = None
         self.fit_times_ = None
+        self.val_errors_ = None
 
+        self.center_selection = self._init_center_selection(center_selection)
+
+    def _init_center_selection(
+        self, center_selection: Union[str, falkon.center_selection.CenterSelector]
+    ) -> falkon.center_selection.CenterSelector:
         if isinstance(center_selection, str):
-            if center_selection.lower() == 'uniform':
-                if M is None:
+            if center_selection.lower() == "uniform":
+                if self.M is None:
                     raise ValueError(
                         "M must be specified when no `CenterSelector` object is provided. "
-                        "Specify an integer value for `M` or a `CenterSelector` object.")
-                self.center_selection: falkon.center_selection.CenterSelector = \
-                    falkon.center_selection.UniformSelector(self.random_state_, num_centers=M)
+                        "Specify an integer value for `M` or a `CenterSelector` object."
+                    )
+                return falkon.center_selection.UniformSelector(self.random_state_, num_centers=self.M)
             else:
                 raise ValueError(f'Center selection "{center_selection}" is not valid.')
-        else:
-            self.center_selection: falkon.center_selection.CenterSelector = center_selection
+        return center_selection
 
     def _init_cuda(self):
         if self.use_cuda_:
             torch.cuda.init()
             self.num_gpus = devices.num_gpus(self.options)
 
-    def _get_callback_fn(self,
-                         X: _tensor_type,
-                         Y: torch.Tensor,
-                         Xts: _tensor_type,
-                         Yts: torch.Tensor,
-                         ny_points: _tensor_type,
-                         precond: falkon.preconditioner.Preconditioner):
+    def _reset_state(self):
+        self.alpha_ = None
+        self.ny_points_ = None
+        self.fit_times_ = []
+        self.val_errors_ = []
+
+    def _get_callback_fn(
+        self,
+        X: Optional[_tensor_type],
+        Y: Optional[torch.Tensor],
+        Xts: Optional[_tensor_type],
+        Yts: Optional[torch.Tensor],
+        ny_points: _tensor_type,
+        precond: falkon.preconditioner.Preconditioner,
+    ):
         """Returns the callback function for CG iterations.
 
         The callback computes and displays the validation error.
         """
+        assert not (X is None and Xts is None), "At least one of `X` or `Xts` must be specified"
+        assert not (Y is None and Yts is None), "At least one of `Y` or `Yts` must be specified"
+        assert self.error_fn is not None, "Error function must be specified for callbacks"
+
         def val_cback(it, beta, train_time):
+            assert self.error_fn is not None
+            assert self.fit_times_ is not None
+            assert self.val_errors_ is not None
             # fit_times_[0] is the preparation (i.e. preconditioner time).
             # train_time is the cumulative training time (excludes time for this function)
             self.fit_times_.append(self.fit_times_[0] + train_time)
@@ -94,29 +109,29 @@ class FalkonBase(base.BaseEstimator, ABC):
                 pred = self._predict(Xts, ny_points, alpha)
                 err = self.error_fn(Yts, pred)
             else:
+                assert X is not None and Y is not None
                 pred = self._predict(X, ny_points, alpha)
                 err = self.error_fn(Y, pred)
             err_name = "error"
             if isinstance(err, tuple) and len(err) == 2:
                 err, err_name = err
-            print(f"Iteration {it:3d} - Elapsed {self.fit_times_[-1]:.2f}s - "
-                  f"{err_str} {err_name}: {err:.8f}", flush=True)
+            print(
+                f"Iteration {it:3d} - Elapsed {self.fit_times_[-1]:.2f}s - {err_str} {err_name}: {str(err)}",
+                flush=True,
+            )
+            self.val_errors_.append(err)
 
         return val_cback
 
-    def _check_fit_inputs(self,
-                          X: _tensor_type,
-                          Y: torch.Tensor,
-                          Xts: _tensor_type,
-                          Yts: torch.Tensor) -> Tuple[_tensor_type, torch.Tensor, _tensor_type, torch.Tensor]:
+    def _check_fit_inputs(
+        self, X: _tensor_type, Y: torch.Tensor, Xts: _tensor_type, Yts: torch.Tensor
+    ) -> Tuple[_tensor_type, torch.Tensor, _tensor_type, torch.Tensor]:
         if X.shape[0] != Y.shape[0]:
-            raise ValueError("X and Y must have the same number of "
-                             "samples (found %d and %d)" %
-                             (X.shape[0], Y.shape[0]))
+            raise ValueError(f"X and Y must have the same number of samples (found {X.shape[0]} and {Y.shape[0]})")
         if Y.dim() == 1:
             Y = torch.unsqueeze(Y, 1)
         if Y.dim() != 2:
-            raise ValueError("Y is expected 1D or 2D. Found %dD." % (Y.dim()))
+            raise ValueError(f"Y is expected 1D or 2D. Found {Y.dim()}D.")
         if not check_same_dtype(X, Y):
             raise TypeError("X and Y must have the same data-type.")
 
@@ -131,8 +146,7 @@ class FalkonBase(base.BaseEstimator, ABC):
 
     def _check_predict_inputs(self, X: _tensor_type) -> _tensor_type:
         if self.alpha_ is None or self.ny_points_ is None:
-            raise RuntimeError(
-                "Falkon has not been trained. `predict` must be called after `fit`.")
+            raise RuntimeError("Falkon has not been trained. `predict` must be called after `fit`.")
         if should_use_keops(X, self.ny_points_, self.options):
             X = to_c_contig(X, "X", True)
 
@@ -164,23 +178,21 @@ class FalkonBase(base.BaseEstimator, ABC):
             necessary_ram = X.size(0) * ny_points.size(0) * dts
             if available_ram > necessary_ram:
                 if self.options.debug:
-                    print("%d*%d Kernel matrix will be stored" %
-                          (X.size(0), ny_points.size(0)))
+                    print(f"{X.size(0)}*{ny_points.size(0)} Kernel matrix will be stored")
                 return True
             elif self.options.debug:
                 print(
-                    "Cannot store full kernel matrix: not enough memory (have %.2fGB, need %.2fGB)" %
-                    (available_ram / 2 ** 30, necessary_ram / 2 ** 30))
+                    f"Cannot store full kernel matrix: not enough memory "
+                    f"(have {available_ram / 2 ** 30:.2f}GB, need {necessary_ram / 2 ** 30:.2f}GB)"
+                )
                 return False
         else:
             return False
 
     @abstractmethod
-    def fit(self,
-            X: torch.Tensor,
-            Y: torch.Tensor,
-            Xts: Optional[torch.Tensor] = None,
-            Yts: Optional[torch.Tensor] = None):
+    def fit(
+        self, X: torch.Tensor, Y: torch.Tensor, Xts: Optional[torch.Tensor] = None, Yts: Optional[torch.Tensor] = None
+    ):
         pass
 
     @abstractmethod
@@ -213,9 +225,7 @@ class FalkonBase(base.BaseEstimator, ABC):
         return super().__repr__(N_CHAR_MAX=5000)
 
 
-def to_c_contig(tensor: Optional[torch.Tensor],
-                name: str = "",
-                warn: bool = False) -> Optional[torch.Tensor]:
+def to_c_contig(tensor: Optional[torch.Tensor], name: str = "", warn: bool = False) -> Optional[torch.Tensor]:
     warning_text = (
         "Input '%s' is F-contiguous (stride=%s); to ensure KeOps compatibility, C-contiguous inputs "
         "are necessary. The data will be copied to change its order. To avoid this "
@@ -227,5 +237,5 @@ def to_c_contig(tensor: Optional[torch.Tensor],
             # noinspection PyArgumentList
             warnings.warn(warning_text % (name, tensor.stride()))
         orig_device = tensor.device
-        return torch.from_numpy(np.array(tensor.cpu().numpy(), order="C")).to(device=orig_device)
+        return torch.from_numpy(np.asarray(tensor.cpu().numpy(), order="C")).to(device=orig_device)
     return tensor

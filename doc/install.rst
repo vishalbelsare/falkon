@@ -34,40 +34,53 @@ If Falkon is not installed with GPU support, it will try to link to `Intel MKL <
 to speed-up certain sparse operations. MKL shared libraries are usually distributed with numpy, so this should not be a problem.
 In case sparse matrix support is not needed, the MKL library will not be loaded.
 
-KeOps
-~~~~~
-Falkon uses a patched version of `KeOps <https://www.kernel-operations.io/keops/index.html>`__, therefore until the
-patches are merged in the KeOps library, users will need to uninstall existing KeOps installations (if present), and
-install our patched version.
 
-The patched version is available as a submodule of the Falkon repository. To install it, you can do the following:
-
-.. code-block:: bash
-
-    $ git clone --recurse-submodules https://github.com/FalkonML/falkon.git
-    $ cd falkon/
-    $ pip install ./keops
-
-For use with **Google Colab** KeOps needs some additional packages. You can install them alongside KeOps by running
-
-.. code-block::
-
-    !pip install pykeops[colab] > install.log
-
-from within the Jupyter notebook (see the `KeOps docs <https://www.kernel-operations.io/keops/python/installation.html>`__
-for more information).
 
 Installing
 ----------
 
-After having installed KeOps, you are ready to install Falkon with `pip` (from the root of the git tree):
+There are three ways of installing Falkon:
 
-.. code-block:: bash
+1. **From source** by running
 
-   $ pip install .
+    .. code-block:: bash
 
-This will take a while since there are both Cython extensions which need to be compiled (if Cython is installed),
-and PyTorch extensions which take some time to compile.
+      $ pip install --no-build-isolation git+https://github.com/falkonml/falkon.git
+
+2. **From pypi with JIT compilation** (the C++ extension will be compiled when the library is first used) **BROKEN!!**:
+
+    .. code-block:: bash
+
+      $ pip install falkon
+
+3. **From pre-built wheels** which are available for the following versions of PyTorch and CUDA:
+
+    ============== ========= ========= ========= ========= =========
+     Linux          `cu118`   `cu121`   `cu124`   `cu126`   `cu128`
+    ============== ========= ========= ========= ========= =========
+     torch 2.4.0     ✅        ✅        ✅
+     torch 2.5.0     ✅        ✅        ✅
+     torch 2.6.0     ✅                  ✅        ✅
+     torch 2.7.0     ✅                            ✅        ✅
+    ============== ========= ========= ========= ========= =========
+
+    As an example, if you **already have installed** PyTorch 2.7 and CUDA 11.8 on your system, you should run
+
+    .. code-block:: bash
+
+      $ pip install falkon -f https://falkon.dibris.unige.it/torch-2.7.0_cu118.html
+
+    Similarly for **CPU-only packages**
+
+    .. code-block:: bash
+
+      $ pip install falkon -f https://falkon.dibris.unige.it/torch-2.7.0_cpu.html
+
+    please check `here <https://falkon.dibris.unige.it/index.html>`__ for a list of supported wheels.
+
+For options 1 and 2, you will need the CUDA toolkit to be setup properly on your system in order to compile the sources.
+Compilation may take a few minutes. To speed it up you can try to install ``ninja`` (``pip install ninja``) which
+parallelizes the build process.
 
 
 Testing the installation

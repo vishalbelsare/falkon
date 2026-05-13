@@ -2,22 +2,23 @@ import abc
 from typing import Optional
 
 import torch
+from torch.distributions.transforms import identity_transform
 
 import falkon.kernels
 from falkon.hopt.objectives.transforms import PositiveTransform
-from torch.distributions.transforms import identity_transform
 
 
 class HyperoptObjective(torch.nn.Module):
-    def __init__(self,
-                 kernel: falkon.kernels.DiffKernel,
-                 centers_init: torch.Tensor,
-                 penalty_init: torch.Tensor,
-                 opt_centers: bool,
-                 opt_penalty: bool,
-                 centers_transform: Optional[torch.distributions.Transform],
-                 pen_transform: Optional[torch.distributions.Transform],
-                 ):
+    def __init__(
+        self,
+        kernel: falkon.kernels.DiffKernel,
+        centers_init: torch.Tensor,
+        penalty_init: torch.Tensor,
+        opt_centers: bool,
+        opt_penalty: bool,
+        centers_transform: Optional[torch.distributions.Transform],
+        pen_transform: Optional[torch.distributions.Transform],
+    ):
         """
 
         Parameters
@@ -30,11 +31,10 @@ class HyperoptObjective(torch.nn.Module):
         centers_transform
         pen_transform
         """
-        super(HyperoptObjective, self).__init__()
+        super().__init__()
 
         if not isinstance(kernel, falkon.kernels.DiffKernel):
-            raise TypeError(f"Kernel must inherit from `DiffKernel` for hyperparameter "
-                            f"optimization.")
+            raise TypeError("Kernel must inherit from `DiffKernel` for hyperparameter optimization.")
         self.kernel = kernel
 
         self.centers_transform = centers_transform or identity_transform

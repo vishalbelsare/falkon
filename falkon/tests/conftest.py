@@ -6,13 +6,14 @@ import pytest
 import torch
 import torch.cuda as tcd
 
-from falkon.utils.tensor_helpers import move_tensor
 from falkon.options import FalkonOptions
+from falkon.sparse import SparseTensor
 from falkon.utils import decide_cuda
 from falkon.utils.devices import _cpu_used_mem
-from falkon.sparse import SparseTensor
+from falkon.utils.tensor_helpers import move_tensor
 
 if decide_cuda():
+
     @pytest.fixture(scope="session", autouse=True)
     def initialize_cuda():
         torch.cuda.init()
@@ -33,7 +34,6 @@ def memory_checker(opt: FalkonOptions, extra_mem=0, check_cpu=True):
             tcd.reset_peak_memory_stats(dev)
             # We have to work around buggy memory stats: sometimes reset doesn't work as expected.
             start_ram[dev] = torch.cuda.max_memory_allocated(dev)
-            #print("Start RAM dev %s: %.5fMB" % (dev, torch.cuda.max_memory_allocated(dev) / 2**20))
     elif mem_check:
         start_ram = _cpu_used_mem(uss=True)
         opt = dataclasses.replace(opt, max_cpu_mem=opt.max_cpu_mem + start_ram)
@@ -47,14 +47,16 @@ def memory_checker(opt: FalkonOptions, extra_mem=0, check_cpu=True):
             used_ram = tcd.max_memory_allocated(dev) - start_ram[dev] - extra_mem
             if used_ram > opt.max_gpu_mem:
                 raise MemoryError(
-                        "DEV %d - Memory usage (%.2fMB) exceeds allowed usage (%.2fMB)" %
-                        (dev, used_ram / 2 ** 20, opt.max_gpu_mem / 2 ** 20))
+                    f"DEV {dev} - Memory usage ({used_ram / 2**20:.2f}MB) exceeds "
+                    f"allowed usage ({opt.max_gpu_mem / 2**20:.2f}MB)"
+                )
     elif mem_check:
         used_ram = _cpu_used_mem(uss=True) - start_ram - extra_mem
         if used_ram > opt.max_cpu_mem:
             raise MemoryError(
-                "Memory usage (%.2fMB) exceeds allowed usage (%.2fMB)" %
-                (used_ram / 2 ** 20, opt.max_cpu_mem / 2 ** 20))
+                f"Memory usage ({used_ram / 2 ** 20:.2f}MB) exceeds allowed usage "
+                f"({opt.max_cpu_mem / 2 ** 20:.2f}MB)"
+            )
 
 
 def numpy_to_torch_type(dt):
@@ -64,6 +66,7 @@ def numpy_to_torch_type(dt):
         return torch.float64
     return dt
 
+
 def torch_to_numpy_type(dt):
     if dt == torch.float32:
         return np.float32
@@ -72,7 +75,7 @@ def torch_to_numpy_type(dt):
     return dt
 
 
-def fix_mat(t, dtype, order, device="cpu", copy=False, numpy=False):
+def fix_mat(t, dtype, order, device="cpu", copy=None, numpy=False):
     if dtype is None or order is None:
         return None
     requires_grad = False
@@ -80,7 +83,7 @@ def fix_mat(t, dtype, order, device="cpu", copy=False, numpy=False):
         requires_grad = t.requires_grad
         t = t.detach().numpy()
     if isinstance(t, np.ndarray):
-        t = np.array(t, dtype=dtype, order=order, copy=copy)
+        t = np.asarray(t, dtype=dtype, order=order, copy=copy)
         if numpy:
             return t
         t = move_tensor(torch.from_numpy(t), device)
@@ -97,7 +100,7 @@ def fix_mats(*mats, order, device, dtype):
     dtype = make_tuple(dtype, len(mats))
     for i, m in enumerate(mats):
         if isinstance(m, SparseTensor):
-            yield fix_sparse_mat(m, dtype=dtype[i], device=device[i])
+            yield fix_sparse_mat(m, device=device[i], dtype=dtype[i])
         else:
             yield fix_mat(m, order=order[i], device=device[i], dtype=dtype[i])
 
@@ -124,6 +127,6 @@ def fix_mat_dt(t, dtype=None, numpy=False):
 
 
 def make_tuple(val, length):
-    if isinstance(val, tuple) or isinstance(val, list):
+    if isinstance(val, (tuple, list)):
         assert len(val) == length, "Input to `make_tuple` is already a list of the incorrect length."
     return tuple([val] * length)

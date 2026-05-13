@@ -1,8 +1,8 @@
-from typing import Optional, Dict
+from typing import Dict, Optional
 
-import falkon
 import torch
 
+import falkon
 from falkon.hopt.objectives.exact_objectives.utils import jittering_cholesky
 from falkon.hopt.objectives.objectives import HyperoptObjective
 from falkon.hopt.utils import get_scalar
@@ -10,17 +10,16 @@ from falkon.hopt.utils import get_scalar
 
 class NystromCompReg(HyperoptObjective):
     def __init__(
-            self,
-            kernel: falkon.kernels.DiffKernel,
-            centers_init: torch.Tensor,
-            penalty_init: torch.Tensor,
-            opt_centers: bool,
-            opt_penalty: bool,
-            centers_transform: Optional[torch.distributions.Transform] = None,
-            pen_transform: Optional[torch.distributions.Transform] = None, ):
-        super(NystromCompReg, self).__init__(kernel, centers_init, penalty_init,
-                                             opt_centers, opt_penalty,
-                                             centers_transform, pen_transform)
+        self,
+        kernel: falkon.kernels.DiffKernel,
+        centers_init: torch.Tensor,
+        penalty_init: torch.Tensor,
+        opt_centers: bool,
+        opt_penalty: bool,
+        centers_transform: Optional[torch.distributions.Transform] = None,
+        pen_transform: Optional[torch.distributions.Transform] = None,
+    ):
+        super().__init__(kernel, centers_init, penalty_init, opt_centers, opt_penalty, centers_transform, pen_transform)
         self.x_train, self.y_train = None, None
         self.losses: Optional[Dict[str, torch.Tensor]] = None
 
@@ -31,11 +30,11 @@ class NystromCompReg(HyperoptObjective):
         Kdiag = self.kernel(X, X, diag=True).sum()
 
         L, A, AAT, LB, c = self._calc_intermediate(X, Y)
-        C = torch.triangular_solve(A, LB, upper=False).solution  # m*n
+        C = torch.linalg.solve_triangular(LB, A, upper=False)  # m * n
 
-        datafit = (torch.square(Y).sum() - torch.square(c / sqrt_var).sum())
+        datafit = torch.square(Y).sum() - torch.square(c / sqrt_var).sum()
         ndeff = (C / sqrt_var).square().sum()
-        trace = (Kdiag - torch.trace(AAT))
+        trace = Kdiag - torch.trace(AAT)
         trace = trace * datafit / (variance * X.shape[0])
         self._save_losses(ndeff, datafit, trace)
 
@@ -46,8 +45,8 @@ class NystromCompReg(HyperoptObjective):
             raise RuntimeError("Call forward at least once before calling predict.")
         with torch.autograd.no_grad():
             L, A, AAT, LB, c = self._calc_intermediate(self.x_train, self.y_train)
-            tmp1 = torch.triangular_solve(c, LB, upper=False, transpose=True).solution
-            tmp2 = torch.triangular_solve(tmp1, L, upper=False, transpose=True).solution
+            tmp1 = torch.linalg.solve_triangular(LB.T, c, upper=True)
+            tmp2 = torch.linalg.solve_triangular(L.T, tmp1, upper=True)
             kms = self.kernel(self.centers, X)
             return kms.T @ tmp2
 
@@ -58,14 +57,14 @@ class NystromCompReg(HyperoptObjective):
         kmm = self.kernel(self.centers, self.centers)
 
         L = jittering_cholesky(kmm)
-        A = torch.triangular_solve(kmn, L, upper=False).solution
+        A = torch.linalg.solve_triangular(L, kmn, upper=False)
         AAT = A @ A.T  # m*n @ n*m = m*m in O(n * m^2), equivalent to kmn @ knm.
         # B = A @ A.T + I
         B = AAT / variance + torch.eye(AAT.shape[0], device=X.device, dtype=X.dtype)
         LB = jittering_cholesky(B)  # LB @ LB.T = B
 
         AY = A @ Y  # m*1
-        c = torch.triangular_solve(AY, LB, upper=False).solution  # m*p
+        c = torch.linalg.solve_triangular(LB, AY, upper=False)  # m * p
 
         return L, A, AAT, LB, c
 
@@ -77,7 +76,9 @@ class NystromCompReg(HyperoptObjective):
         }
 
     def __repr__(self):
-        return f"NystromCompReg(" \
-               f"kernel={self.kernel}, " \
-               f"penalty={get_scalar(self.penalty)}, " \
-               f"num_centers={self.centers.shape[0]})"
+        return (
+            f"NystromCompReg("
+            f"kernel={self.kernel}, "
+            f"penalty={get_scalar(self.penalty)}, "
+            f"num_centers={self.centers.shape[0]})"
+        )

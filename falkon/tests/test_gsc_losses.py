@@ -1,9 +1,9 @@
-import pytest
 import numpy as np
+import pytest
 import torch
 
 from falkon import kernels
-from falkon.gsc_losses import *
+from falkon.gsc_losses import LogisticLoss, WeightedCrossEntropyLoss
 
 
 def naive_logistic_loss(true, pred):
@@ -18,13 +18,10 @@ def derivative_test(diff_fn, loss, pred, true):
     o_true, o_pred = true.clone(), pred.clone()
     exp = diff_fn(true, pred)
 
-    exp_d = []
-    for i in range(pred.shape[0]):
-        exp_d.append(torch.autograd.grad(exp[i], pred, retain_graph=True, create_graph=True)[0][i])
-
-    exp_dd = []
-    for i in range(pred.shape[0]):
-        exp_dd.append(torch.autograd.grad(exp_d[i], pred, retain_graph=True)[0][i])
+    exp_d = [
+        torch.autograd.grad(exp[i], pred, retain_graph=True, create_graph=True)[0][i] for i in range(pred.shape[0])
+    ]
+    exp_dd = [torch.autograd.grad(exp_d[i], pred, retain_graph=True)[0][i] for i in range(pred.shape[0])]
 
     pred = pred.detach()
     np.testing.assert_allclose(exp.detach().numpy(), loss(true, pred).detach().numpy())
